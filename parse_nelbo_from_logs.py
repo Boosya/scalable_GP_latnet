@@ -10,7 +10,7 @@ methods = ['super_scalableGPL','latnet','scalableGPL']
 for method in methods:
 	for sims in ['sim1','sim2','sim3']:
 		"""sims: which simulation in the dataset """
-		for Ti in [50, 100, 200]
+		for Ti in [50, 100, 200]:
 			"""Ti: number of observations"""
 			result_output_folder = RESULTS + 'fmri/' + 'fmri_' + sims + '_' + method + '/' + str(Ti)
 			for s in range(50):
