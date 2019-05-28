@@ -5,8 +5,9 @@ folder = 'nelbos/'
 
 experiment = 'fmri'
 sims = ['sim1']
-methods = ['latnet']
-Tis = [50]
+methods = ['super_scalableGPL','latnet','scalableGPL']
+
+Tis = [50,100,200]
 
 for sim in sims:
 	for method in methods:
@@ -23,15 +24,13 @@ for sim in sims:
 
 					fig, ax = plt.subplots()
 					ax.plot(iterations, nelbo_int)
-					ax.axvline(x=4000,color = 'r')
-					ax.axvline(x=4000*2, color = 'r')
-					ax.axvline(x=4000*3, color = 'r')
-					ax.axvline(x=4000*4, color = 'r')
-					ax.axvline(x=4000*5, color = 'r')
-					ax.axvline(x=4000*6, color = 'r')
+					total_n_iterations = len(nelbo)*10
+					for i in range(1,total_n_iterations//4000):
+						ax.axvline(x=4000*i,color = 'r')
 					ax.set(xlabel='iteration', ylabel='nelbo',
 						title='_'.join((experiment,sim,method,str(Ti),str(subject))))
 					ax.grid()
 
 					fig.savefig(folder+ '_'.join((experiment,sim,method,str(Ti),str(subject)))+'.png')
+					plt.close('all') 
 					# plt.show()
