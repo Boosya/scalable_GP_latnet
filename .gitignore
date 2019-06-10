@@ -2,3 +2,4 @@ results/
 nelbos/
 .DS_Store
 venv/
+*_pycache_*
