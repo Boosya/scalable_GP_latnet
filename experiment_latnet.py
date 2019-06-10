@@ -81,11 +81,15 @@ def functional_connectivity_sim(Y, folder_name, s, logger_name):
     logger.setLevel(logging.DEBUG)
     fh = logging.FileHandler(path+'/run.log')
     fh.setLevel(logging.DEBUG)
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # formatter = logging.Formatter(
+    #     '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter('%(message)s')
     fh.setFormatter(formatter)
     logger.addHandler(fh)
-
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
     (T, D) = Y[0].shape
     t = [np.array(range(0, T))[:, np.newaxis]]
     start_time = time.time()
@@ -96,10 +100,10 @@ def functional_connectivity_sim(Y, folder_name, s, logger_name):
     init_lenthscale = 1. / np.sqrt(D)
     lambda_prior = 1.
     lambda_postetior = .15
-    opt_targets = {'var': 2000, 'hyp': 2000}
+    opt_targets = {'var': 10, 'hyp': 0}
     # opt_targets = {'var': 40}
     # n_total_iter = 2
-    n_total_iter = 7
+    n_total_iter = 1
     init_sigma2_n = 0.31
     init_sigma2_g = 1e-4
     init_variance = 0.50
@@ -107,9 +111,10 @@ def functional_connectivity_sim(Y, folder_name, s, logger_name):
     var_lr = 0.01
     hyp_lr = 0.001
     n_samples = 200
+    log_every = 10
     elbo_, sigma2_n_, sigma2_g_, mu, sigma2_, alpha_, lengthscale, variance = \
-        Latnet.optimize(s, norm_t, Y_data, opt_targets.keys(), n_total_iter, opt_targets, logger, init_sigma2_n,
-                        init_sigma2_g, init_lenthscale, init_variance, init_p, lambda_prior, lambda_postetior, var_lr, hyp_lr, n_samples)
+        Latnet.optimize(s, norm_t, Y_data, opt_targets.keys(), n_total_iter, opt_targets, logger, init_sigma2_g,
+                        init_sigma2_n, init_lenthscale, init_variance, init_p, lambda_prior, lambda_postetior, var_lr, hyp_lr, n_samples, log_every=log_every,callback=None,seed=1)
     end_time = time.time()
     ExprUtil.write_to_file_callback(path, logger)(
         alpha_, mu, sigma2_, sigma2_n_, sigma2_g_, lengthscale, variance)
@@ -127,13 +132,13 @@ if __name__ == '__main__':
     methods = ["latnet"]
     n_workers = 4
     for method in methods:
-        for sims in ['sim1','sim2','sim3']:
-        # for sims in ['sim1']:
+        # for sims in ['sim1','sim2','sim3']:
+        for sims in ['sim2']:
             """sims: which simulation in the dataset """
-            # for Ti in [50]:
-            for Ti in [50, 100, 200]:
+            for Ti in [100]:
+            # for Ti in [50, 100, 200]:
                 """Ti: number of observations"""
-                for s in range(50):
+                for s in range(1):
                     configs.append({'sims': sims, 'Ti': Ti, 's': s, 'output_folder': 'fmri/fmri_' +
                                     sims+'_'+method+'/', 'input_file': 'fmri_sim/ts_'+sims+'.csv'})
 
