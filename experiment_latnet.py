@@ -97,7 +97,7 @@ def functional_connectivity_sim(Y, folder_name, s, logger_name):
     Y_data = np.hstack(Y)
 
     # initialize hyperparameters
-    init_lenthscale = 1. / np.sqrt(D)
+    init_lenthscale = 1. / np.sqrt(T)
     lambda_prior = 1.
     lambda_postetior = .15
     opt_targets = {'var': 10, 'hyp': 0}
