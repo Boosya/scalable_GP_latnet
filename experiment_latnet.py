@@ -81,9 +81,9 @@ def functional_connectivity_sim(Y, folder_name, s, logger_name):
     logger.setLevel(logging.DEBUG)
     fh = logging.FileHandler(path+'/run.log')
     fh.setLevel(logging.DEBUG)
-    # formatter = logging.Formatter(
-    #     '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    formatter = logging.Formatter('%(message)s')
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # formatter = logging.Formatter('%(message)s')
     fh.setFormatter(formatter)
     logger.addHandler(fh)
     ch = logging.StreamHandler()
@@ -100,10 +100,10 @@ def functional_connectivity_sim(Y, folder_name, s, logger_name):
     init_lenthscale = 1. / np.sqrt(T)
     lambda_prior = 1.
     lambda_postetior = .15
-    opt_targets = {'var': 10, 'hyp': 0}
+    opt_targets = {'var': 2000, 'hyp': 2000}
     # opt_targets = {'var': 40}
     # n_total_iter = 2
-    n_total_iter = 1
+    n_total_iter = 7
     init_sigma2_n = 0.31
     init_sigma2_g = 1e-4
     init_variance = 0.50
