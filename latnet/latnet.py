@@ -425,6 +425,18 @@ class Latnet:
 				 lambda_prior=1.0, lambda_postetior=0.1, var_lr=0.01, hyp_lr=1e-4, n_samples=200,
 				 log_every=10,callback=None,seed=None,fix_kernel=False
 				 ):	
+		logger.debug('\n\nParameters')
+		logger.debug('init_sigma2_n {}'.format(init_sigma2_n))	
+		logger.debug('init_sigma2_g {}'.format(init_sigma2_g))
+		logger.debug('init_lengthscle {}'.format(init_lengthscle))
+		logger.debug('init_variance {}'.format(init_variance))
+		logger.debug('init_p {}'.format(init_p))
+		logger.debug('lambda_prior {}'.format(lambda_prior))
+		logger.debug('lambda_postetior {}'.format(lambda_postetior))
+		logger.debug('var_lr {}'.format(var_lr))
+		logger.debug('hyp_lr {}'.format(hyp_lr))
+		logger.debug('n_samples {}\n\n'.format(n_samples))
+
 		with tf.Session() as sess:
 			var_opt, hyp_opt, elbo, kl_normal, kl_logstic, ell, \
 			log_sigma2_n, log_sigma2_g, mu, log_sigma2, log_alpha, \

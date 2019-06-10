@@ -86,7 +86,11 @@ def functional_connectivity_sim(Y, folder_name, s, logger_name):
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     fh.setFormatter(formatter)
     logger.addHandler(fh)
-
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+    
     (T, D) = Y[0].shape
     t = [np.array(range(0, T))[:, np.newaxis]]
     norm_t = (t[0] - np.mean(t[0])) / np.double(np.std(t[0]))

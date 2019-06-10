@@ -434,11 +434,17 @@ class Latnet:
                  log_every=10, callback=None, seed=None, fix_kernel=False
                  ):
 
-        # not to use GPUs for optimization because of memory problem.
-        # config = tf.ConfigProto(device_count={'GPU': 0})
-
-        # with tf.Session(config=config) as sess:
-
+        logger.debug('\n\nParameters')
+        logger.debug('init_sigma2_n {}'.format(init_sigma2_n))
+        logger.debug('init_lengthscle {}'.format(init_lengthscle))
+        logger.debug('init_variance {}'.format(init_variance))
+        logger.debug('init_p {}'.format(init_p))
+        logger.debug('lambda_prior {}'.format(lambda_prior))
+        logger.debug('lambda_postetior {}'.format(lambda_postetior))
+        logger.debug('var_lr {}'.format(var_lr))
+        logger.debug('hyp_lr {}'.format(hyp_lr))
+        logger.debug('n_samples {}\n\n'.format(n_samples))
+            
         with tf.Session() as sess:
             var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, \
                 log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, \
