@@ -418,6 +418,7 @@ class Latnet:
 
     @staticmethod
     def converged(elbos):
+        return False
         if len(elbos) < 5:
             return False
         last_5_elbos = elbos[-5:]
