@@ -111,9 +111,10 @@ def functional_connectivity_sim(Y, folder_name, s, logger_name):
     n_samples = 200
     approximate_kernel = True
     elbo_, sigma2_n_,  mu, sigma2_, mu_gamma, sigma2_gamma_, mu_omega, sigma2_omega_, alpha_, lengthscale, variance = \
-        Latnet.optimize(s, D, N_rf,  norm_t, Y_data, opt_targets.keys(), n_total_iter, opt_targets, logger,
-                        init_sigma2_n, init_lenthscale, init_variance, init_p,
-                        lambda_prior, lambda_postetior, var_lr, hyp_lr, n_samples, approximate_kernel)
+        Latnet.optimize(s, D, N_rf,  norm_t, Y_data, opt_targets.keys(), \
+            n_total_iter, opt_targets, logger,init_sigma2_n, init_lenthscale, \
+            init_variance, init_p, lambda_prior, lambda_postetior, var_lr, hyp_lr, \
+            n_samples, approximate_kernel)
     end_time = time.time()
     ExprUtil.write_to_file_callback(path, logger)(
         alpha_, mu, sigma2_, sigma2_n_, lengthscale, variance)
@@ -133,12 +134,10 @@ if __name__ == '__main__':
     n_workers = 4
     for method in methods:
         for sims in ['sim1', 'sim2', 'sim3']:
-            # for sims in ['sim1']:
             """sims: which simulation in the dataset """
-            # for Ti in [50]:
             for Ti in [50, 100, 200]:
                 """Ti: number of observations"""
-                for s in range(50):
+                for s in range(N_OBJECTS):
                     configs.append({'sims': sims, 'Ti': Ti, 's': s, 'output_folder': 'fmri/fmri_' +
                                     sims+'_'+method+'/', 'input_file': 'fmri_sim/ts_'+sims+'.csv'})
 

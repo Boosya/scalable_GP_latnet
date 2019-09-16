@@ -101,8 +101,6 @@ def functional_connectivity_sim(Y, folder_name, s, logger_name):
     lambda_prior = 1.
     lambda_postetior = .15
     opt_targets = {'var': 2000, 'hyp': 2000}
-    # opt_targets = {'var': 40}
-    # n_total_iter = 2
     n_total_iter = 7
     init_sigma2_n = 0.31
     init_sigma2_g = 1e-4
@@ -132,13 +130,11 @@ if __name__ == '__main__':
     methods = ["latnet"]
     n_workers = 4
     for method in methods:
-        # for sims in ['sim1','sim2','sim3']:
-        for sims in ['sim2']:
+        for sims in ['sim1','sim2','sim3']:
             """sims: which simulation in the dataset """
-            for Ti in [100]:
-            # for Ti in [50, 100, 200]:
+            for Ti in [50, 100, 200]:
                 """Ti: number of observations"""
-                for s in range(1):
+                for s in range(N_OBJECTS):
                     configs.append({'sims': sims, 'Ti': Ti, 's': s, 'output_folder': 'fmri/fmri_' +
                                     sims+'_'+method+'/', 'input_file': 'fmri_sim/ts_'+sims+'.csv'})
 
