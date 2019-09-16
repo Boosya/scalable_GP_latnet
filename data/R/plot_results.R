@@ -18,13 +18,9 @@ source('helper.R')
 source('pwling.R')
 
 # which datasets to use for running experiments - these refer to datasets in Smiths et al 2011 Neuroimaging
-# exprlist = c(1, 2, 3)
-# exprlist = c(1,2,3)
-exprlist = c(1)
+exprlist = c(1, 2, 3)
 # name of methods
-# methods_list = c("LATNET", "PC", "CPC", "LiNGAM", "IAMB", "PW-LiNGAM")
-methods_list = c("scalableGPL","latnet","super_scalableGPL")
-# methods_list = c("scalableGPL")
+methods_list = c("scalableGPL","latnet")
 
 all_results = NA
 
@@ -33,8 +29,6 @@ results_list = list()
 for (expr in exprlist) {
     print(sprintf('expr %d', expr))
     # each file contained data from 50 objects
-    # TODO uncomment this
-    # for (subject in 1 : 10) {
     for (subject in 1 : 50) {
         # how many datapoints per object to include
         for (Ti in c(50, 100, 200)) {
@@ -96,39 +90,19 @@ for (expr in exprlist) {
                 Ti = Ti, mxe = mxe)
                 index_r = index_r + 1
             }
-            if ("super_scalableGPL" %in% methods_list) {
-                print(sprintf('subject %d, expr %d, T %d, method %s', subject, expr, Ti, "super scalable"))
-                method = "super_scalableGPL"
-                latnet_add = paste(latnet_results_path, 'fmri_sim', expr, '_super_scalableGPL/', Ti, '/subject_', (subject - 1), '/p.csv', sep = "")
-                latnet_res = read.csv(latnet_add, header = F)
-                pred_net = latnet_res
-                pred_net = t(abs(pred_net))
-                pred_net = pred_net[row_index, row_index]
-
-                pred = pred_net[upper.tri(pred_net) | lower.tri(pred_net)]
-                perf_pred = prediction(pred, true_labels * 1)
-                perf = performance(perf_pred, c("auc"))
-                mxe = performance(perf_pred, c("mxe"))@y.values[[1]]
-                results_list[[index_r]] = data.frame(auc = perf@y.values[[1]], expr = expr, subject = subject, method = method,
-                Ti = Ti, mxe = mxe)
-                index_r = index_r + 1
-            }
         }
     }
 }
 results = rbindlist(results_list)
 write.csv(all_results, file = 'all_results.csv')
-# results = subset(results, expr %in% c(1, 2, 3))
-results = subset(results, expr %in% c(1))
+results = subset(results, expr %in% c(1, 2, 3))
 results = as.data.frame(results)
 results$label_N = "NA"
-results[which(results$expr == 1),]$label_N = "N=5"
-# results[results$expr == 2,]$label_N = "N=10"
-# results[results$expr == 3,]$label_N = "N=15"
-# results$label_N = factor(x = results$label_N, levels = c('N=5', 'N=10', 'N=15'))
-results$label_N = factor(x = results$label_N, levels = c('N=5'))
-results$method = factor(x = results$method, levels = c("scalableGPL","latnet","super_scalableGPL"))
-#results[results$method == "iamb",]$method = "IAMB"
+results[results$expr == 1,]$label_N = "N=5"
+results[results$expr == 2,]$label_N = "N=10"
+results[results$expr == 3,]$label_N = "N=15"
+results$label_N = factor(x = results$label_N, levels = c('N=5', 'N=10', 'N=15'))
+results$method = factor(x = results$method, levels = c("scalableGPL","latnet"))
 
 write.csv(x = results, file = paste(results_output_path, 'fmri_results_all.csv', sep = ''))
 ggplot(results, aes(x = as.factor(Ti), y = auc, fill = method)) +
