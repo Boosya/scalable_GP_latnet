@@ -1,6 +1,6 @@
 results/
 nelbos/
-.DS_Store
+*.DS_Store
 venv/
 *.pyc
 *__pycache__*
