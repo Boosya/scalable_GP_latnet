@@ -4,8 +4,8 @@ import csv
 folder = 'nelbos/'
 
 experiment = 'fmri'
-sims = ['sim1']
-methods = ['super_scalableGPL','latnet','scalableGPL']
+sims = ['sim1','sim2','sim3']
+methods = ['latnet','scalableGPL']
 
 Tis = [50,100,200]
 
@@ -30,7 +30,5 @@ for sim in sims:
 					ax.set(xlabel='iteration', ylabel='nelbo',
 						title='_'.join((experiment,sim,method,str(Ti),str(subject))))
 					ax.grid()
-
-					fig.savefig(folder+ '_'.join((experiment,sim,method,str(Ti),str(subject)))+'.png')
-					plt.close('all') 
-					# plt.show()
+					fig.savefig('_'.join((experiment,sim,method,str(Ti),str(subject)))+'.png')
+					plt.close('all')

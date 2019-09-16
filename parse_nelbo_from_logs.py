@@ -4,12 +4,11 @@ import csv
 
 RESULTS='results/'
 N_OBJECTS =50
-elbo_pattern = re.compile('iter elbo: (-\d+) ')
-methods = ['super_scalableGPL','latnet','scalableGPL']
+elbo_pattern = re.compile('iter elbo: (-?\d+) ')
+methods = ['latnet','scalableGPL']
 
 for method in methods:
-	for sims in ['sim1']:
-	# for sims in ['sim1','sim2','sim3']:
+	for sims in ['sim1','sim2','sim3']:
 		"""sims: which simulation in the dataset """
 		for Ti in [50, 100, 200]:
 			"""Ti: number of observations"""
