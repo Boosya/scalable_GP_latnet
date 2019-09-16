@@ -2,5 +2,6 @@ results/
 nelbos/
 *.DS_Store
 venv/
+.vscode/
 *.pyc
 *__pycache__*
