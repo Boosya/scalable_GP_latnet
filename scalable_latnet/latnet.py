@@ -1,6 +1,7 @@
 __author__ = 'AD'
 
 import tensorflow as tf
+# import tensorflow_probability as tfp
 
 import numpy as np
 from tensorflow.python.framework.errors import OpError
@@ -8,6 +9,31 @@ from tensorflow.python.framework.errors import OpError
 
 class Latnet:
     FLOAT = tf.float64
+
+    def cholesky_decompose(M):
+        # add small noise to eigenvalues
+        eig_values,eig_vectors = tf.linalg.eigh(M)
+        eps = 2
+        diag_eig_values = tf.linalg.diag(eig_values+eps)
+        vect_diag = (tf.matmul(eig_vectors,diag_eig_values))
+        vec_transp = (tf.transpose(eig_vectors,perm=[0,2,1]))
+        M = tf.matmul(vect_diag,vec_transp)
+        M_chol = tf.cholesky(M)
+        return M_chol
+
+
+    def variable_summaries(var):
+        """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
+        with tf.compat.v1.name_scope('summaries'):
+            mean = tf.reduce_mean(input_tensor=var)
+            tf.compat.v1.summary.scalar('mean', mean)
+            with tf.compat.v1.name_scope('stddev'):
+                stddev = tf.sqrt(tf.reduce_mean(input_tensor=tf.square(var - mean)))
+            tf.compat.v1.summary.scalar('stddev', stddev)
+            tf.compat.v1.summary.scalar('max', tf.reduce_max(input_tensor=var))
+            tf.compat.v1.summary.scalar('min', tf.reduce_min(input_tensor=var))
+            tf.compat.v1.summary.histogram('histogram', var)
+        tf.summary.tensor_summary('tensor', var)
 
     @staticmethod
     def replace_nan_with_zero(w):
@@ -97,7 +123,7 @@ class Latnet:
                                  init_lengthscle, init_variance, init_p)
 
         # get KL terms of ELL terms.
-        kl_W, kl_G, kl_O, kl_A, ell = \
+        kl_W, kl_G, kl_O, kl_A, ell, first, second, third, eig_check = \
             Latnet.get_elbo(D, N_rf, t, Y, tf.exp(log_sigma2_n), mu, tf.exp(log_sigma2), mu_gamma, tf.exp(log_sigma2_gamma), mu_omega, tf.exp(log_sigma2_omega), tf.exp(log_alpha), tf.exp(log_lengthscale), tf.exp(
                 log_variance), tf.constant(lambda_prior, dtype=Latnet.FLOAT), tf.constant(lambda_postetior, dtype=Latnet.FLOAT), init_p, n_samples, approximate_kernel=approximate_kernel, seed=seed)
 
@@ -106,8 +132,10 @@ class Latnet:
         elbo = tf.negative(kl_W) + tf.negative(kl_G) + \
             tf.negative(kl_O) + tf.negative(kl_A) + ell
         # get the operation for optimizing variational parameters
-        var_opt, _, var_nans = Latnet.get_opzimier(tf.negative(elbo), [
-                                                   mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha], var_lr)
+        var_opt, _, var_nans = Latnet.get_opzimier(tf.negative(elbo), \
+            [mu, log_sigma2, \
+                mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, \
+                    log_alpha], var_lr)
 
         if fixed_kernel:
             # get the operation for optimizing hyper-parameters except kernel parameters.
@@ -117,8 +145,9 @@ class Latnet:
             # get the operation for optimizing hyper-parameters (kernel parameters and noise parameters)
             hyp_opt, _, hyp_nans = Latnet.get_opzimier(tf.negative(
                 elbo), [log_sigma2_n, log_lengthscale, log_variance], hyp_lr)
+        merged = tf.summary.merge_all()
 
-        return var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance, var_nans, hyp_nans
+        return merged, var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance, var_nans, hyp_nans
 
     @staticmethod
     def logp_logistic(X, alpha, lambda_):
@@ -349,8 +378,10 @@ class Latnet:
             z_W = tf.random_normal(S_by_N_by_N, dtype=Latnet.FLOAT, seed=seed)
         else:
             z_W = tf.random_normal(S_by_N_by_N, dtype=Latnet.FLOAT)
-        W = tf.multiply(z_W, tf.sqrt(sigma2)) + mu
-        W = tf.matrix_set_diag(W, tf.zeros((S, N), dtype=Latnet.FLOAT))
+        with tf.name_scope('W'):
+            W = tf.multiply(z_W, tf.sqrt(sigma2)) + mu
+            W = tf.matrix_set_diag(W, tf.zeros((S, N), dtype=Latnet.FLOAT))
+            # Latnet.variable_summaries(W)
 
         # Gamma
         if seed is not None:
@@ -359,7 +390,7 @@ class Latnet:
         else:
             z_G = tf.random_normal(S_by_N_by_2Nrf, dtype=Latnet.FLOAT)
         Gamma = tf.multiply(z_G, tf.sqrt(sigma2_gamma)) + mu_gamma
-
+        # Gamma = GAMMA_PRIOR
         # Omega
         if seed is not None:
             z_O = tf.random_normal(
@@ -367,7 +398,7 @@ class Latnet:
         else:
             z_O = tf.random_normal(S_by_Nrf_by_D, dtype=Latnet.FLOAT)
         Omega = tf.multiply(z_O, tf.sqrt(sigma2_omega)) + mu_omega
-
+        # Omega = OMEGA_PRIOR
         # sampling for A
         if seed is not None:
             u = tf.random_uniform(S_by_N_by_N, minval=0,
@@ -384,12 +415,12 @@ class Latnet:
 
         prior_mu, prior_sigma2, prior_mu_gamma, prior_sigma2_gamma, prior_mu_omega, prior_sigma2_omega, prior_alpha = Latnet.get_priors(
             D, N_rf, N, init_p, lengthscale)
-        return Latnet.get_KL_normal(mu, sigma2, prior_mu, prior_sigma2), \
-            Latnet.get_DKL_normal(mu_gamma, sigma2_gamma, prior_mu_gamma, prior_sigma2_gamma), \
-            Latnet.get_DKL_normal(mu_omega, sigma2_omega, prior_mu_omega, prior_sigma2_omega), \
-            Latnet.get_KL_logistic(_A, alpha, prior_lambda_, posterior_lambda_, prior_alpha), \
-            Latnet.batch_ll_new(t, Y, sigma2_n, A, W, Gamma,
-                                Omega, variance, N, D, N_rf, T, S)
+        kl_W = Latnet.get_KL_normal(mu, sigma2, prior_mu, prior_sigma2)
+        kl_G = Latnet.get_DKL_normal(mu_gamma, sigma2_gamma, prior_mu_gamma, prior_sigma2_gamma)
+        kl_O = Latnet.get_DKL_normal(mu_omega, sigma2_omega, prior_mu_omega, prior_sigma2_omega)
+        kl_A = Latnet.get_KL_logistic(_A, alpha, prior_lambda_, posterior_lambda_, prior_alpha)
+        ell, first, second, third, eig_check = Latnet.batch_ll_new(t, Y, sigma2_n, A, W, Gamma, Omega, variance, N, D, N_rf, T, S)
+        return kl_W, kl_G, kl_O, kl_A, ell, first, second, third, eig_check
 
     @staticmethod
     def batch_ll_new(t, Y, sigma2_n, A, W, Gamma, Omega, variance, N, D, N_rf,  T, S):
@@ -400,33 +431,65 @@ class Latnet:
             tf.concat([tf.cos(Fi_under), tf.sin(Fi_under)], axis=1)
         Z = tf.matmul(Gamma, Fi)
         I = tf.constant(np.identity(N), dtype=Latnet.FLOAT)
-        B = tf.multiply(A, W)
+        with tf.name_scope('B'):
+            B = tf.multiply(A, W)
+            # Latnet.variable_summaries(B)
+        add_noise = False
+        if add_noise:
+            S_N_T = (S,N,T)
+            # TODO: try smaller
+            noise = np.random.normal(loc=0, scale=0.0001, size = S_N_T)
+            Z = tf.add(Z,tf.matmul(B,noise))
         IB = tf.subtract(I, B)
-        IB_inverse = tf.matrix_inverse(IB)
-        exp_Y = tf.matmul(IB_inverse, Z)
+        
+        with tf.name_scope('eig_check'):
+            eig_values,eig_vectors = tf.linalg.eigh(B)
+            max_eig_check = abs(tf.reduce_max(eig_values)) < 1
+            min_eig_check = abs(tf.reduce_min(eig_values)) < 1
+            eig_check = max_eig_check & min_eig_check
+            # Latnet.variable_summaries(eig_check)
+
+        approximate_inverse = 'solver'
+        if approximate_inverse == 'approx':
+            v_current = tf.reshape(Z, [S, N, T])
+            exp_Y = v_current
+            n_approx = 7
+            for i in range(n_approx):
+                v_current = tf.matmul(B, v_current)
+                exp_Y = tf.add(v_current, exp_Y)  # v + Bv
+
+        elif approximate_inverse == 'solver':
+            with tf.name_scope('exp_Y'):
+                exp_Y = tf.linalg.solve(IB, Z)
+        elif approximate_inverse == 'cholesky':
+            IB_chol = Latnet.cholesky_decompose(IB)
+            with tf.name_scope('exp_Y'):      
+                exp_Y = tf.linalg.cholesky_solve(IB_chol, Z)
+        # elif approximate_inverse == 'svd':
+        #     IB_inverse = tfp.math.pinv(IB)
+            with tf.name_scope('exp_Y'):    
+                exp_Y =tf.matmul(IB_inverse, Z)
+        else:
+            IB_inverse = tf.matrix_inverse(IB)
+            with tf.name_scope('exp_Y'):
+                exp_Y =tf.matmul(IB_inverse, Z)
         real_Y = tf.expand_dims(tf.transpose(Y), 0)
-        norm = tf.norm(exp_Y - real_Y, ord=2, axis=1)
+        with tf.name_scope('norm'):
+            norm = tf.norm(exp_Y - real_Y, ord=2, axis=1)
+            Latnet.variable_summaries(norm)
         norm_sum_by_T = tf.reduce_sum(norm, axis=1)
         norm_sum_by_T_avg_by_S = tf.reduce_mean(norm_sum_by_T)
+        third = norm_sum_by_T_avg_by_S
         _half = tf.constant(0.5, dtype=Latnet.FLOAT)
         _two = tf.constant(2.0, dtype=Latnet.FLOAT)
-        _pi = np.pi
+        _two_pi = tf.constant(6.28, dtype=Latnet.FLOAT)
         _N = tf.constant(N, dtype=Latnet.FLOAT)
-        res = -_half * N*T*tf.log(_two*_pi*sigma2_n) - \
-            _half/sigma2_n*norm_sum_by_T_avg_by_S
-        return res
-
-    @staticmethod
-    def converged(elbos):
-        return False
-        if len(elbos) < 5:
-            return False
-        last_5_elbos = elbos[-5:]
-        last_4_percent_changes = [abs(last_5_elbos[i] - last_5_elbos[i+1]) / abs(
-            last_5_elbos[i+1]) for i in range(len(last_5_elbos)-1)]
-        if max(last_4_percent_changes) < 0.01:
-            return True
-        return False
+        _T = tf.constant(T, dtype=Latnet.FLOAT)
+        first = tf.multiply(\
+            _half,tf.multiply(_N,tf.multiply(_T,tf.log(tf.multiply(_two_pi,sigma2_n))))) 
+        second = _half*tf.divide(norm_sum_by_T_avg_by_S,sigma2_n)
+        res = -tf.add(first ,second)
+        return res, first, second, third, eig_check
 
     @staticmethod
     def optimize(s, D, N_rf, t, Y, targets, total_iters, local_iters, logger,
@@ -434,6 +497,24 @@ class Latnet:
                  lambda_prior, lambda_postetior, var_lr, hyp_lr, n_samples, approximate_kernel=True,
                  log_every=10, callback=None, seed=None, fix_kernel=False
                  ):
+        global OMEGA_PRIOR, GAMMA_PRIOR
+        
+        # N = Y.shape[1]
+        # Nrf_by_D = (N_rf, D)
+        # S_by_Nrf_by_D = ((n_samples, N_rf, D))
+        # mu_omega = tf.zeros(Nrf_by_D, dtype=Latnet.FLOAT)
+        # sigma2_omega = tf.ones(
+        #     Nrf_by_D, dtype=Latnet.FLOAT)/init_lengthscle/init_lengthscle
+        # z_O = np.random_normal(S_by_Nrf_by_D, dtype=Latnet.FLOAT)
+        # OMEGA_PRIOR = np.random.normal(loc=0, scale=1, size = S_by_Nrf_by_D)
+        
+        # N_by_2Nrf = (N, 2*N_rf)
+        # S_by_N_by_2Nrf = ((n_samples, N, 2*N_rf))
+        # mu_gamma = tf.zeros(N_by_2Nrf, dtype=Latnet.FLOAT)
+        # sigma2_gamma = tf.ones(N_by_2Nrf, dtype=Latnet.FLOAT)
+        # z_G = np.random_normal(S_by_N_by_2Nrf, dtype=Latnet.FLOAT)
+        # GAMMA_PRIOR = tf.multiply(z_G, tf.sqrt(sigma2_gamma)) + mu_gamma
+        # GAMMA_PRIOR = np.random.normal(loc=0, scale=1, size = S_by_N_by_2Nrf)
 
         logger.debug('\n\nParameters')
         logger.debug('init_sigma2_n {}'.format(init_sigma2_n))
@@ -447,21 +528,26 @@ class Latnet:
         logger.debug('n_samples {}\n\n'.format(n_samples))
             
         with tf.Session() as sess:
-            var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, \
+            # TODO squash variattional and hyper
+            merged, var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, \
                 log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, \
                 log_lengthscale, log_variance, var_nans, hyp_nans = \
                 Latnet.run_model(D, N_rf, tf.cast(t, Latnet.FLOAT), Y, init_sigma2_n, init_lengthscle, init_variance, init_p,
                                  lambda_prior, lambda_postetior, var_lr, hyp_lr, n_samples, approximate_kernel,  fixed_kernel=fix_kernel, seed=seed)
 
+            
+            train_writer = tf.summary.FileWriter('results/fmri/fmri_sim2_scalableGPL/train',sess.graph)
             init_op = tf.initializers.global_variables()
             sess.run(init_op)
 
             # current global iteration over optimization steps.
             _iter = 0
 
+            # TODO: save the best state so far and retrieve it
             logger.debug("prior lambda={:.3f}; posterior lambda={:.3f}; variat. learning rate={:.3f}; hyper learning rate={:.3f}".format(
                 lambda_prior, lambda_postetior, var_lr, hyp_lr))
-
+            id = 0
+            best_elbo = None
             while total_iters is None or _iter < total_iters:
 
                 logger.debug("\nSUBJECT %d: ITERATION %d STARTED\n" %
@@ -473,13 +559,14 @@ class Latnet:
                     for i in range(0, local_iters['var']):
                         try:
                             output = sess.run(
-                                [elbo, kl_W, kl_A, kl_G, kl_O, ell, var_opt, var_nans])
+                                [merged, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, var_opt, var_nans])
+                            id += 1
+                            cur_elbo = output[1]
                             if i % log_every == 0:
-                                elbos.append(output[0])
-                                logger.debug('\tlocal {:d} iter elbo: {:.0f} (KL W={:.0f}, KL A={:.0f}, KL G={:.0f},KL O={:.0f}, ell={:.0f}), {:d} nan in grads (err= {:d}). '.format(
-                                    i, output[0], output[1], output[2], output[3], output[4], output[5], output[7], output[7] != 0))
-                                if Latnet.converged(elbos):
-                                    break
+                                elbos.append(cur_elbo)
+                                logger.debug('\tlocal {:d} iter elbo: {:.0f} (KL W={:.0f}, KL A={:.0f}, KL G={:.0f},KL O={:.0f}, ell={:.0f}, first={:.0f}, second={:.0f}, third ={:f}, eig_check = {}), {:d} nan in grads (err= {:d}). '.format(
+                                    i, output[1], output[2], output[3], output[4], output[5], output[6], output[7], output[8], output[9], output[10], output[12], output[12] != 0))
+                                train_writer.add_summary(output[0],id)
                         except OpError as e:
                             logger.error(e.message)
 
@@ -490,13 +577,13 @@ class Latnet:
                     for i in range(0, local_iters['hyp']):
                         try:
                             output = sess.run(
-                                [elbo, kl_W, kl_A, kl_G, kl_O, ell, hyp_opt, hyp_nans])
+                                [merged, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check,  hyp_opt, hyp_nans])
+                            id += 1
                             if i % log_every == 0:
-                                elbos.append(output[0])
-                                logger.debug('\tlocal {:d} iter elbo: {:.0f} (KL W={:.0f}, KL A={:.0f}, KL G={:.0f},KL O={:.0f}, ell={:.0f}), {:d} nan in grads (err= {:d}). '.format(
-                                    i, output[0], output[1], output[2], output[3], output[4], output[5], output[7], output[7] != 0))
-                                if Latnet.converged(elbos):
-                                    break
+                                elbos.append(output[1])
+                                logger.debug('\tlocal {:d} iter elbo: {:.0f} (KL W={:.0f}, KL A={:.0f}, KL G={:.0f},KL O={:.0f}, ell={:.0f}, first={:.0f}, second={:.0f}, third = {:f}, eig_check = {}), {:d} nan in grads (err= {:d}). '.format(
+                                    i, output[1], output[2], output[3], output[4], output[5], output[6], output[7], output[8], output[9], output[10], output[12], output[12] != 0))
+                                train_writer.add_summary(output[0],id)
                         except OpError as e:
                             logger.error(e.message)
                 if callback is not None:
