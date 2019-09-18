@@ -19,6 +19,7 @@ import time
 # TODO histigram of p matrix and compare
 # TODO refactor code
 # TODO try small noise
+# TODO create shell script to run many subjects
 
 
 from scalable_latnet.scalablelatnet import ScalableLatnet

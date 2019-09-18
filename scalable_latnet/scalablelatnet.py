@@ -348,7 +348,7 @@ class ScalableLatnet:
             log_lengthscale, log_variance, var_nans, hyp_nans = \
                 ScalableLatnet.run_model(flags, D, tf.cast(t, ScalableLatnet.FLOAT), Y)
 
-            train_writer = tf.summary.FileWriter('results/fmri/fmri_sim2_scalableGPL/train', sess.graph)
+            # train_writer = tf.summary.FileWriter('results/fmri/fmri_sim2_scalableGPL/train', sess.graph)
             init_op = tf.initializers.global_variables()
             sess.run(init_op)
 
@@ -378,7 +378,7 @@ class ScalableLatnet:
                                     '\tlocal {:d} iter elbo: {:.0f} (KL W={:.0f}, KL A={:.0f}, KL G={:.0f},KL O={:.0f}, ell={:.0f}, first={:.0f}, second={:.0f}, third ={:f}, eig_check = {}), {:d} nan in grads (err= {:d}). '.format(
                                         i, output[1], output[2], output[3], output[4], output[5], output[6], output[7],
                                         output[8], output[9], output[10], output[12], output[12] != 0))
-                                train_writer.add_summary(output[0], id)
+                                # train_writer.add_summary(output[0], id)
                         except OpError as e:
                             logger.error(e.message)
 
@@ -398,7 +398,7 @@ class ScalableLatnet:
                                     '\tlocal {:d} iter elbo: {:.0f} (KL W={:.0f}, KL A={:.0f}, KL G={:.0f},KL O={:.0f}, ell={:.0f}, first={:.0f}, second={:.0f}, third = {:f}, eig_check = {}), {:d} nan in grads (err= {:d}). '.format(
                                         i, output[1], output[2], output[3], output[4], output[5], output[6], output[7],
                                         output[8], output[9], output[10], output[12], output[12] != 0))
-                                train_writer.add_summary(output[0], id)
+                                # train_writer.add_summary(output[0], id)
                         except OpError as e:
                             logger.error(e.message)
                 if callback is not None:
