@@ -9,19 +9,6 @@ from tensorflow.python.framework.errors import OpError
 class ScalableLatnet:
     FLOAT = tf.float64
 
-    def variable_summaries(var):
-        """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
-        with tf.compat.v1.name_scope('summaries'):
-            mean = tf.reduce_mean(input_tensor=var)
-            tf.compat.v1.summary.scalar('mean', mean)
-            with tf.compat.v1.name_scope('stddev'):
-                stddev = tf.sqrt(tf.reduce_mean(input_tensor=tf.square(var - mean)))
-            tf.compat.v1.summary.scalar('stddev', stddev)
-            tf.compat.v1.summary.scalar('max', tf.reduce_max(input_tensor=var))
-            tf.compat.v1.summary.scalar('min', tf.reduce_min(input_tensor=var))
-            tf.compat.v1.summary.histogram('histogram', var)
-        tf.summary.tensor_summary('tensor', var)
-
     @staticmethod
     def replace_nan_with_zero(w):
         """
@@ -89,9 +76,8 @@ class ScalableLatnet:
 
         hyp_opt, _, hyp_nans = ScalableLatnet.get_opzimier(tf.negative(
             elbo), [log_sigma2_n, log_variance], flags.get_flag().hyp_learning_rate)
-        merged = tf.summary.merge_all()
 
-        return merged, var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance, var_nans, hyp_nans
+        return  var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance, var_nans, hyp_nans
 
     @staticmethod
     def logp_logistic(X, alpha, lambda_):
@@ -216,10 +202,8 @@ class ScalableLatnet:
         S_by_Nrf_by_D = ((S, flags.get_flag().n_rff, D))
         # sampling for W
         z_W = tf.random_normal(S_by_N_by_N, dtype=ScalableLatnet.FLOAT)
-        with tf.name_scope('W'):
-            W = tf.multiply(z_W, tf.sqrt(sigma2)) + mu
-            W = tf.matrix_set_diag(W, tf.zeros((S, N), dtype=ScalableLatnet.FLOAT))
-            # Latnet.variable_summaries(W)
+        W = tf.multiply(z_W, tf.sqrt(sigma2)) + mu
+        W = tf.matrix_set_diag(W, tf.zeros((S, N), dtype=ScalableLatnet.FLOAT))
 
         # Gamma
         z_G = tf.random_normal(S_by_N_by_2Nrf, dtype=ScalableLatnet.FLOAT)
@@ -265,9 +249,7 @@ class ScalableLatnet:
              tf.concat([tf.cos(Fi_under), tf.sin(Fi_under)], axis=1)
         Z = tf.matmul(Gamma, Fi)
         I = tf.constant(np.identity(N), dtype=ScalableLatnet.FLOAT)
-        with tf.name_scope('B'):
-            B = tf.multiply(A, W)
-            # Latnet.variable_summaries(B)
+        B = tf.multiply(A, W)
         add_noise = False
         if add_noise:
             S_N_T = (S, N, T)
@@ -275,12 +257,10 @@ class ScalableLatnet:
             Z = tf.add(Z, tf.matmul(B, noise))
         IB = tf.subtract(I, B)
 
-        with tf.name_scope('eig_check'):
-            eig_values, eig_vectors = tf.linalg.eigh(B)
-            max_eig_check = abs(tf.reduce_max(eig_values)) < 1
-            min_eig_check = abs(tf.reduce_min(eig_values)) < 1
-            eig_check = max_eig_check & min_eig_check
-            # Latnet.variable_summaries(eig_check)
+        eig_values, eig_vectors = tf.linalg.eigh(B)
+        max_eig_check = abs(tf.reduce_max(eig_values)) < 1
+        min_eig_check = abs(tf.reduce_min(eig_values)) < 1
+        eig_check = max_eig_check & min_eig_check
 
         approximate_inverse = flags.get_flag().inv_calculation
         if approximate_inverse == 'approx':
@@ -292,20 +272,15 @@ class ScalableLatnet:
                 exp_Y = tf.add(v_current, exp_Y)  # v + Bv
 
         elif approximate_inverse == 'solver':
-            with tf.name_scope('exp_Y'):
-                exp_Y = tf.linalg.solve(IB, Z)
+            exp_Y = tf.linalg.solve(IB, Z)
         elif approximate_inverse == 'cholesky':
             IB_chol = ScalableLatnet.cholesky_decompose(IB)
-            with tf.name_scope('exp_Y'):
-                exp_Y = tf.linalg.cholesky_solve(IB_chol, Z)
+            exp_Y = tf.linalg.cholesky_solve(IB_chol, Z)
         else:
             IB_inverse = tf.matrix_inverse(IB)
-            with tf.name_scope('exp_Y'):
-                exp_Y = tf.matmul(IB_inverse, Z)
+            exp_Y = tf.matmul(IB_inverse, Z)
         real_Y = tf.expand_dims(tf.transpose(Y), 0)
-        with tf.name_scope('norm'):
-            norm = tf.norm(exp_Y - real_Y, ord=2, axis=1)
-            ScalableLatnet.variable_summaries(norm)
+        norm = tf.norm(exp_Y - real_Y, ord=2, axis=1)
         norm_sum_by_T = tf.reduce_sum(norm, axis=1)
         norm_sum_by_T_avg_by_S = tf.reduce_mean(norm_sum_by_T)
         third = norm_sum_by_T_avg_by_S
@@ -343,7 +318,7 @@ class ScalableLatnet:
         np.random.seed(flags.get_flag().seed)
 
         with tf.Session(config=config) as sess:
-            merged, var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, \
+            var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, \
             log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, \
             log_lengthscale, log_variance, var_nans, hyp_nans = \
                 ScalableLatnet.run_model(flags, D, tf.cast(t, ScalableLatnet.FLOAT), Y)
@@ -355,50 +330,40 @@ class ScalableLatnet:
             # current global iteration over optimization steps.
             _iter = 0
 
-            id = 0
-            best_elbo = None
+            
             while flags.get_flag().n_iterations is None or _iter < flags.get_flag().n_iterations:
 
                 logger.debug("\nSUBJECT %d: ITERATION %d STARTED\n" %
                              (s, _iter))
                 # optimizing variational parameters
                 if flags.get_flag().var_steps > 0:
-                    elbos = []
                     logger.debug("optimizing variational parameters")
                     for i in range(0, flags.get_flag().var_steps):
                         try:
                             output = sess.run(
-                                [merged, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, var_opt,
+                                [elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, var_opt,
                                  var_nans])
-                            id += 1
-                            cur_elbo = output[1]
                             if i % flags.get_flag().display_step == 0:
-                                elbos.append(cur_elbo)
                                 logger.debug(
                                     '\tlocal {:d} iter elbo: {:.0f} (KL W={:.0f}, KL A={:.0f}, KL G={:.0f},KL O={:.0f}, ell={:.0f}, first={:.0f}, second={:.0f}, third ={:f}, eig_check = {}), {:d} nan in grads (err= {:d}). '.format(
-                                        i, output[1], output[2], output[3], output[4], output[5], output[6], output[7],
-                                        output[8], output[9], output[10], output[12], output[12] != 0))
-                                # train_writer.add_summary(output[0], id)
+                                        i, output[0], output[1], output[2], output[3], output[4], output[5], output[6],
+                                        output[7], output[8], output[9], output[11], output[11] != 0))
                         except OpError as e:
                             logger.error(e.message)
 
                 # optimizing hyper parameters
                 if flags.get_flag().hyp_steps > 0:
-                    elbos = []
                     logger.debug("optimizing hyper parameters")
                     for i in range(0, flags.get_flag().hyp_steps):
                         try:
                             output = sess.run(
-                                [merged, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, hyp_opt,
+                                [elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, hyp_opt,
                                  hyp_nans])
-                            id += 1
                             if i % flags.get_flag().display_step == 0:
-                                elbos.append(output[1])
                                 logger.debug(
                                     '\tlocal {:d} iter elbo: {:.0f} (KL W={:.0f}, KL A={:.0f}, KL G={:.0f},KL O={:.0f}, ell={:.0f}, first={:.0f}, second={:.0f}, third = {:f}, eig_check = {}), {:d} nan in grads (err= {:d}). '.format(
-                                        i, output[1], output[2], output[3], output[4], output[5], output[6], output[7],
-                                        output[8], output[9], output[10], output[12], output[12] != 0))
-                                # train_writer.add_summary(output[0], id)
+                                        i, output[0], output[1], output[2], output[3], output[4], output[5], output[6],
+                                        output[7], output[8], output[9], output[11], output[11] != 0))
                         except OpError as e:
                             logger.error(e.message)
                 if callback is not None:

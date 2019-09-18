@@ -16,12 +16,11 @@ import argparse
 # TODO set core settings - use one subject for one terminal
 # TODO try remove legthscale from learnable 
 # TODO random feature code - other implemention
-# TODO add noise that is missing
+# TODO add noise that is missing, small one
 # TODO fix the seed
 # TODO histigram of p matrix and compare
 # TODO refactor code
-# TODO try small noise
-# TODO create shell script to run many subjects
+# TODO add logging for every time used and value
 
 
 from scalable_latnet.scalablelatnet import ScalableLatnet
@@ -105,7 +104,6 @@ def functional_connectivity_sim(Y, folder_name, subject, logger_name):
     with open(path + '/timing.csv', "w") as csvFile:
         Fileout = csv.writer(csvFile, delimiter=',', quoting=csv.QUOTE_ALL)
         Fileout.writerow(csvdata)
-    flags.del_all_flags()
 
 
 if __name__ == '__main__':
