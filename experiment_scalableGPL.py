@@ -113,32 +113,11 @@ def functional_connectivity_sim(Y, folder_name, subject, logger_name):
     norm_t = (t[0] - np.mean(t[0])) / np.double(np.std(t[0]))
     Y_data = np.hstack(Y)
 
-    # initialize hyperparameters
-    init_lenthscale = 1. / np.sqrt(T)
-    lambda_prior = 1.
-    lambda_postetior = .15
-    opt_targets = {'var': 2000, 'hyp': 2000}
-    n_total_iter = 7
-    N_rf = 500
-    init_sigma2_n = 0.31
-    init_variance = 0.50
-    init_p = 0.5
-    var_lr = 0.01
-    hyp_lr = 0.001
-    n_samples = 10
-    
-    log_every = 10
-    inv_calculation = 'approx'
-    n_approx_terms = 5
-
     flags = Flags(T)
     logger.debug("Parameters of the model")
     flags.log_flags(logger)
     elbo_, sigma2_n_,  mu, sigma2_, mu_gamma, sigma2_gamma_, mu_omega, sigma2_omega_, alpha_, lengthscale, variance = \
-        ScalableLatnet.optimize(flags, subject, D, N_rf, norm_t, Y_data, opt_targets.keys(), \
-                                n_total_iter, opt_targets, logger, init_sigma2_n, init_lenthscale, \
-                                init_variance, init_p, lambda_prior, lambda_postetior, var_lr, hyp_lr, \
-                                inv_calculation, n_approx_terms, n_samples, log_every)
+        ScalableLatnet.optimize(flags, subject, D, norm_t, Y_data,  logger)
     end_time = time.time()
     ExprUtil.write_to_file_callback(path, logger)(
         alpha_, mu, sigma2_, sigma2_n_, lengthscale, variance)

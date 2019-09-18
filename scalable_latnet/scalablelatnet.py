@@ -66,43 +66,6 @@ class ScalableLatnet:
 
     @staticmethod
     def run_model(flags, D, t, Y):
-        """
-        This method calculates Tensorflow quantities that will be used for training LATNET.
-
-        Args:
-                t: array of size N x 1
-                Y: array of size N x T
-                init_sigma2_g: double. Initial variance of the connection noise.
-                init_sigma2_n: double. Initial variance of the observation noise.
-                init_lengthscle: double. Initial length scale of the RBF kernel.
-                init_variance: double. Initial variance of the RBF kenel.
-                lambda_prior: double. lambda of the Concrete distribution used for prior over `A_ij' matrix.
-                lambda_postetior: double. lambda of the Concrete distribution used for posterior over `A_ij' matrix.
-                var_lr: double. Learning rate for updating variational parameters.
-                hyp_lr: Learning rate for updating hyper parameters.
-                n_samples: int. Number of Monte-Carlo samples used.
-                seed: int. Seed used for random number generators.
-                fix_kernel: Boolean. Whether to optimize kenrel parameters during the optimization of hyper-parameters.
-
-        Returns:
-                var_opt: Tensorflow operation for optimizing variational parameters for one step.
-                hyp_opt: Tensorflow operation for optimizing hyper-parameters for one step.
-                elbo: Tensor with shape () containing ELBO, i.e., evidence lower-bound.
-                kl_W: Tensor with shape () containing KL-divergence between prior over W and posterior W. It is
-                        calculated analytically.
-                kl_A: Tensor with shape () containing KL-divergence between prior over A and posterior A.
-                        It is calculated using sampling.
-                ell: Tensor with shape () containing approximated expected log-likelihood term.
-                log_sigma2_n: Tensor of shape () containing the logarithm of sigma2_n, i.e., variance of observation noise.
-                log_sigma2_g: Tensor of shape () containing the logarithm of sigma2_g, i.e., variance of connection noise.
-                mu: Tensor of shape N x N containing variational parameter mu which is mean of W.
-                log_sigma2: Tensor of shape N x N containing logarithm of sigma_2 which is variance of W.
-                log_alpha: Tensor of shape N x N containing the logarithm of parameter alpha for Concrete distribution over A_ij.
-                log_lengthscale: Tensor of shape () containing the logarithm of length scale of kernel.
-                log_variance: Tensor of shape () containing the logarithm of variance of kernel.
-                var_nans: Tensor of shape () representing whether there is any NAN in the gradients of variational parameters.
-                hyp_nans: Tensor of shape () representing whether there is any NAN in the gradients of hyper parameters.
-        """
 
         # get variables that will be optimized.
         log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance = \
@@ -132,20 +95,6 @@ class ScalableLatnet:
 
     @staticmethod
     def logp_logistic(X, alpha, lambda_):
-        """
-        Logarithm of Concrete distribution with parameter `alpha' and hyper-parameter `lambda_' at points `X', i.e.,
-                Concrete(X;alpha, lambda_)
-
-        Args:
-                X: Tensor of shape S x N x N. Locations at which the distribution will be calculated.
-                alpha:  Tensor of shape N x N. To be written.
-                lambda_: double. Tensor of shape ().
-
-        Returns:
-                : A tensor of shape S x N x N. Element ijk is:
-                        log lambda_  - lambda_ * X_ijk + log alpha_jk - 2 log (1 + exp (-lambda_ * X_ijk + log alpha_jk))
-
-        """
 
         mu = tf.log(alpha)
         return tf.subtract(tf.add(tf.subtract(tf.log(lambda_), tf.multiply(lambda_, X)), mu),
@@ -155,22 +104,7 @@ class ScalableLatnet:
 
     @staticmethod
     def get_KL_logistic(X, posterior_alpha, prior_lambda_, posterior_lambda_, prior_alpha):
-        """
-        Calculates KL divergence between two Concrete distributions using samples from posterior Concrete distribution.
 
-        KL(Concrete(alpha, posterior_lambda_) || Concrete(prior_alpha, prior_lambda))
-
-        Args:
-                X: Tensor of shape S x N x N. These are samples from posterior Concrete distribution.
-                posterior_alpha: Tensor of shape N x N. alpha for posterior distributions.
-                prior_lambda_: Tensor of shape (). prior_lambda_ of prior distribution.
-                posterior_lambda_: Tensor of shape (). posterior_lambda_ for posterior distribution.
-                prior_alpha: Tensor of shape N x N. alpha for prior distributions.
-
-        Returns:
-                : Tensor of shape () representing KL divergence between the two concrete distributions.
-
-        """
         logdiff = ScalableLatnet.logp_logistic(X, posterior_alpha, posterior_lambda_) - ScalableLatnet.logp_logistic(X,
                                                                                                                      prior_alpha,
                                                                                                                      prior_lambda_)
@@ -180,19 +114,6 @@ class ScalableLatnet:
 
     @staticmethod
     def get_KL_normal(posterior_mu, posterior_sigma2, prior_mu, prior_sigma2):
-        """
-        Calculates KL divergence between two Mormal distributions, i.e.,
-                KL(Normal(mu, sigma2), Normal(prior_mu, prior_sigma2))
-
-        Args:
-                posterior_mu: Tensor of shape N x N.
-                posterior_sigma2: Tensor of shape N x N.
-                prior_mu: Tensor of shape N x N.
-                prior_sigma2: Tensor of shape N x N.
-
-        Returns:
-                Tensor of shape (), which contains the KL divergence.
-        """
 
         _half = tf.constant(0.5, dtype=ScalableLatnet.FLOAT)
         kl = tf.add(
@@ -204,19 +125,6 @@ class ScalableLatnet:
         return tf.reduce_sum(kl[0])
 
     def get_DKL_normal(mu, sigma2, prior_mu, prior_sigma2):
-        """
-        Calculates KL divergence between two Mormal distributions, i.e.,
-                KL(Normal(mu, sigma2), Normal(prior_mu, prior_sigma2))
-
-        Args:
-                posterior_mu: Tensor of shape N x N.
-                posterior_sigma2: Tensor of shape N x N.
-                prior_mu: Tensor of shape N x N.
-                prior_sigma2: Tensor of shape N x N.
-
-        Returns:
-                Tensor of shape (), which contains the KL divergence.
-        """
 
         _half = tf.constant(0.5, dtype=ScalableLatnet.FLOAT)
         _munus_one = tf.constant(-1, dtype=ScalableLatnet.FLOAT)
@@ -227,19 +135,6 @@ class ScalableLatnet:
 
     @staticmethod
     def get_priors(flags, D, N, T):
-        """
-        Return parameters for prior distributions over W and A,
-                W ~ Normal(prior_mu, prior_sigma2),
-                A ~ Concrete(prior_alpha)
-
-        Args:
-                N: int. Number of nodes
-                p: float. Sparciy of matrix A
-        Returns:
-                prior_mu: Tensor of size N x N.
-                prior_sigma2:f Tensor of size N x N.
-                prior_alpha: Tensor of size N x N.
-        """
 
         N_by_N = (N, N)
         N_by_2Nrf = (N, 2 * flags.get_flag().n_rff)
@@ -265,28 +160,6 @@ class ScalableLatnet:
 
     @staticmethod
     def get_vairables(flags, D, Y):
-        """
-        Get tensor variables for the parameters that will be optimized (variational and hyper-parameters).
-                W ~ Normal(mu, sigma2)
-                A ~ Concrete(exp(log_alpha))
-
-        Args:
-                t: Tensor of shape T x 1
-                Y: Tensor of shape T x N
-                init_sigma2_g: init value of variance of connection noise.
-                init_sigma2_n: init value of variance of observation nose.
-                init_lengthscle: init value of kernel length-scale.
-                init_variance: init value of kernel variance.
-
-        Returns:
-                log_sigma2_n: Tensor variable of shape ().
-                log_sigma2_g: Tensor variable of shape ().
-                mu: Tensor variable of shape N x N.
-                log_sigma2: Tensor variable of shape N x N, which contains logarithm of sigma2.
-                log_alpha: Tensor variable of shape N x N, which contains logarithm of alpha.
-                log_lengthscale: Tensor variable of shape (), which contains logarithm of length-scale.
-                log_variance: Tensor variable of shape (), which contains logarithm of variance.
-        """
 
         N = Y.shape[1]
         T = Y.shape[0]
@@ -322,31 +195,6 @@ class ScalableLatnet:
     @staticmethod
     def get_elbo(flags, D, t, Y, sigma2_n, mu, sigma2, mu_gamma, sigma2_gamma, mu_omega, sigma2_omega, alpha,
                  variance):
-        """
-        Calculates evidence lower bound (ELBO) for a set of posterior parameters using re-parametrization trick.
-
-        posterior:    W ~ Normal(mu, sigma2), A ~ Normal(alpha)
-
-        Args:
-                t: Tensor with shape N x 1, which includes observation times.
-                Y: Tensor wit shape T x N, which includes observation from N nodes at T time points.
-                sigma2_n: Tensor with shape (). Observation noise variance.
-                sigma2_g: Tensor with shape (). Connection noise variance.
-                mu: Tensor with shape N x N.
-                sigma2: Tensor with shape N x N.
-                alpha: Tensor with shape N x N.
-                lengthscale: double. Tensor with shape ().
-                variance: double. Tensor with shape ().
-                prior_lambda_: double. Tensor with shape ().
-                posterior_lambda_: double. Tensor with shape ().
-                n_samples: int. Tensor with shape (). Number of Monte-Carlo samples.
-                seed: int. Seed used for random number generators.
-
-        Returns:
-                KL_normal: Tensor of shape () which contains KL-divergence between W_prior and W_posterior.
-                KL_logistic:  Tensor of shape () which contains approximated KL-divergence between A_prior and A_posterior.
-                ell: Tensor of shape () which contains approximated log-likelihood using Monte-Carlo samples.
-        """
 
         # number of nodes
         N = Y.shape[1]
@@ -484,12 +332,7 @@ class ScalableLatnet:
         return M_chol
 
     @staticmethod
-    def optimize(flags, s, D, N_rf, t, Y, targets, total_iters, local_iters, logger,
-                 init_sigma2_n, init_lengthscle, init_variance, init_p,
-                 lambda_prior, lambda_postetior, var_lr, hyp_lr,
-                 inv_calculation, n_approx_terms, n_samples,
-                 log_every, callback=None, seed=None, fix_kernel=False
-                 ):
+    def optimize(flags, s, D,  t, Y, logger, callback=None):
 
         config = tf.ConfigProto()
         config.intra_op_parallelism_threads = 44
