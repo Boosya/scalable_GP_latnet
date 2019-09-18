@@ -10,7 +10,6 @@ import argparse
 # export OMP_NUM_THREADS=1
 
 
-# TODO add lengthscale back
 # TODO save best state so far
 # TODO fix sampling from standart normal in omega (prior fixed and var fixed)
 # TODO use 1000 random features
@@ -20,6 +19,8 @@ import argparse
 # TODO refactor code
 # TODO add logging for every time used and value
 
+
+# ? when calculating KL (Omega) prior over sigma - lengthscale from posterior or from flags?
 
 from scalable_latnet.scalablelatnet import ScalableLatnet
 from scalable_latnet.expr_util import ExprUtil

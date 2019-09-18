@@ -52,7 +52,7 @@ class ScalableLatnet:
         return optimizer.apply_gradients(grad_var_pairs), grads, ScalableLatnet.contains_nan(grads)
 
     @staticmethod
-    def run_model(flags, D, t, Y):
+    def run_model(logger,flags, D, t, Y):
 
         # get variables that will be optimized.
         log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance = \
@@ -60,7 +60,7 @@ class ScalableLatnet:
 
         # get KL terms of ELL terms.
         kl_W, kl_G, kl_O, kl_A, ell, first, second, third, eig_check = \
-            ScalableLatnet.get_elbo(flags, D, t, Y, tf.exp(log_sigma2_n), mu, tf.exp(log_sigma2), mu_gamma,
+            ScalableLatnet.get_elbo(logger,flags, D, t, Y, tf.exp(log_sigma2_n), mu, tf.exp(log_sigma2), mu_gamma,
                                     tf.exp(log_sigma2_gamma), mu_omega, tf.exp(log_sigma2_omega),
                                     tf.exp(log_alpha), tf.exp(log_lengthscale), tf.exp(log_variance))
 
@@ -180,7 +180,7 @@ class ScalableLatnet:
         return log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance
 
     @staticmethod
-    def get_elbo(flags, D, t, Y, sigma2_n, mu, sigma2, mu_gamma, sigma2_gamma, mu_omega, sigma2_omega, alpha,lengthscale,
+    def get_elbo(logger, flags, D, t, Y, sigma2_n, mu, sigma2, mu_gamma, sigma2_gamma, mu_omega, sigma2_omega, alpha,lengthscale,
                  variance):
 
         # number of nodes
@@ -238,13 +238,13 @@ class ScalableLatnet:
         kl_G = ScalableLatnet.get_DKL_normal(mu_gamma, sigma2_gamma, prior_mu_gamma, prior_sigma2_gamma)
         kl_O = ScalableLatnet.get_DKL_normal(mu_omega, sigma2_omega, prior_mu_omega, prior_sigma2_omega)
         kl_A = ScalableLatnet.get_KL_logistic(_A, alpha, prior_lambda_, posterior_lambda_, prior_alpha)
-        ell, first, second, third, eig_check = ScalableLatnet.batch_ll_new(flags, t, Y, sigma2_n, A, W, Gamma, Omega,
+        ell, first, second, third, eig_check = ScalableLatnet.batch_ll_new(logger,flags, t, Y, sigma2_n, A, W, Gamma, Omega,
                                                                            variance,
                                                                            N, D, flags.get_flag().n_rff, T, S)
         return kl_W, kl_G, kl_O, kl_A, ell, first, second, third, eig_check
 
     @staticmethod
-    def batch_ll_new(flags, t, Y, sigma2_n, A, W, Gamma, Omega, variance, N, D, N_rf, T, S):
+    def batch_ll_new(logger,flags, t, Y, sigma2_n, A, W, Gamma, Omega, variance, N, D, N_rf, T, S):
 
         Omega_temp = tf.reshape(Omega, [S * N_rf, D])
         Fi_under = tf.reshape(
@@ -325,7 +325,7 @@ class ScalableLatnet:
             var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, \
             log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, \
             log_lengthscale, log_variance, var_nans, hyp_nans = \
-                ScalableLatnet.run_model(flags, D, tf.cast(t, ScalableLatnet.FLOAT), Y)
+                ScalableLatnet.run_model(logger,flags, D, tf.cast(t, ScalableLatnet.FLOAT), Y)
 
             # train_writer = tf.summary.FileWriter('results/fmri/fmri_sim2_scalableGPL/train', sess.graph)
             init_op = tf.initializers.global_variables()
