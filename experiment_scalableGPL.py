@@ -3,6 +3,8 @@ import csv
 from flags import Flags
 import pandas
 import time
+import argparse
+
 
 
 # export OMP_NUM_THREADS=1
@@ -33,29 +35,6 @@ from concurrent.futures import ThreadPoolExecutor as ThreadPoolExecutor
 RESULTS = 'results/'
 DATA = 'data/'
 N_OBJECTS = 50
-
-
-class ThreadPoolExecutorStackTraced(ThreadPoolExecutor):
-
-    def submit(self, fn, *args, **kwargs):
-        """Submits the wrapped function instead of `fn`"""
-
-        return super(ThreadPoolExecutorStackTraced, self).submit(
-            self._function_wrapper, fn, *args, **kwargs)
-
-    def _function_wrapper(self, fn, *args, **kwargs):
-        """Wraps `fn` in order to preserve the traceback of any kind of
-        raised exception
-
-        """
-        try:
-            return fn(*args, **kwargs)
-        except Exception:
-            raise sys.exc_info()[0](traceback.format_exc())  # Creates an
-            # exception of the
-            # same type with the
-            # traceback as
-            # message
 
 
 def functional_connectivity_group(config):
@@ -131,29 +110,14 @@ def functional_connectivity_sim(Y, folder_name, subject, logger_name):
 
 if __name__ == '__main__':
 
-    N_OBJECTS = 50
+    parser = argparse.ArgumentParser(description='Specify the data to process.')
+    parser.add_argument('--sim', help='which sim to use')
+    parser.add_argument('--Ti', help='number of observations per node')
+    parser.add_argument('--s', help='which oject')
 
-    configs = []
-    # methods = ("super_scalableGPL","latnet","scalableGPL")
+    args = parser.parse_args()
+
     methods = ["scalableGPL"]
-    n_workers = 1
-    for method in methods:
-        for sims in ['sim2']:
-        # for sims in ['sim1', 'sim2', 'sim3']:
-            """sims: which simulation in the dataset """
-            # for Ti in [50, 100, 200]:
-            for Ti in [100]:
-                """Ti: number of observations"""
-                # for s in range(N_OBJECTS):
-                for s in range(1):
-                    configs.append({'sims': sims, 'Ti': Ti, 's': s, 'output_folder': 'fmri/fmri_' +
-                                    sims+'_'+method+'/', 'input_file': 'fmri_sim/ts_'+sims+'.csv'})
-
-    with ThreadPoolExecutorStackTraced(max_workers=n_workers) as executor:
-        futures = {executor.submit(functional_connectivity_group, config)
-                   for config in configs}
-        for future in futures:
-            try:
-                future.result()
-            except TypeError as e:
-                print(e)
+    config = {'sims': args.sim, 'Ti': args.Ti, 's': args.s, 'output_folder': 'fmri/fmri_' +
+                                    args.sim+'_scalableGPL/', 'input_file': 'fmri_sim/ts_'+args.sim+'.csv'}
+    functional_connectivity_group(config)

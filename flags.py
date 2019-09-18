@@ -5,6 +5,9 @@ class Flags():
 	def __init__(self, T):
 		flags = tf.app.flags
 		# flags.DEFINE_integer('batch_size', 50, 'Batch size.  ')
+		flags.DEFINE_string("sim", "sim2", "which dataset to work with")
+		flags.DEFINE_integer("Ti", 100, "number of observations per node in dataset")
+		flags.DEFINE_integer("s", 25, "data for which subject to use")
 		flags.DEFINE_string('learn_Omega', 'prior_fixed', 'How to treat Omega - fixed (from the prior), optimized, or learned variationally')
 		flags.DEFINE_integer("seed", 1, "Seed for random tf and np operations")
 
