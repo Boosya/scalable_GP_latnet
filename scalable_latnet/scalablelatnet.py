@@ -62,7 +62,7 @@ class ScalableLatnet:
         kl_W, kl_G, kl_O, kl_A, ell, first, second, third, eig_check = \
             ScalableLatnet.get_elbo(flags, D, t, Y, tf.exp(log_sigma2_n), mu, tf.exp(log_sigma2), mu_gamma,
                                     tf.exp(log_sigma2_gamma), mu_omega, tf.exp(log_sigma2_omega),
-                                    tf.exp(log_alpha), tf.exp(log_variance))
+                                    tf.exp(log_alpha), tf.exp(log_lengthscale), tf.exp(log_variance))
 
         # calculating ELBO
         elbo = tf.negative(kl_W) + tf.negative(kl_G) + \
@@ -75,7 +75,7 @@ class ScalableLatnet:
                                                             log_alpha], flags.get_flag().var_learning_rate)
 
         hyp_opt, _, hyp_nans = ScalableLatnet.get_opzimier(tf.negative(
-            elbo), [log_sigma2_n, log_variance], flags.get_flag().hyp_learning_rate)
+            elbo), [log_sigma2_n, log_variance, log_lengthscale], flags.get_flag().hyp_learning_rate)
 
         return  var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance, var_nans, hyp_nans
 
@@ -127,7 +127,7 @@ class ScalableLatnet:
         Nrf_by_D = (flags.get_flag().n_rff, D)
 
         p = flags.get_flag().init_p
-        lengthscale = 1. / np.sqrt(T)
+        lengthscale = tf.constant(flags.get_flag().init_lengthscale,dtype=ScalableLatnet.FLOAT)
 
         prior_mu = tf.zeros(N_by_N, dtype=ScalableLatnet.FLOAT)
         prior_sigma2 = tf.multiply(
@@ -173,13 +173,14 @@ class ScalableLatnet:
         log_lengthscale = tf.Variable(
             tf.log(tf.constant(flags.get_flag().init_lengthscale, dtype=ScalableLatnet.FLOAT)),
             dtype=ScalableLatnet.FLOAT)
+
         log_variance = tf.Variable(
             tf.log(tf.constant(flags.get_flag().init_variance, dtype=ScalableLatnet.FLOAT)), dtype=ScalableLatnet.FLOAT)
 
         return log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance
 
     @staticmethod
-    def get_elbo(flags, D, t, Y, sigma2_n, mu, sigma2, mu_gamma, sigma2_gamma, mu_omega, sigma2_omega, alpha,
+    def get_elbo(flags, D, t, Y, sigma2_n, mu, sigma2, mu_gamma, sigma2_gamma, mu_omega, sigma2_omega, alpha,lengthscale,
                  variance):
 
         # number of nodes
@@ -200,6 +201,7 @@ class ScalableLatnet:
         S_by_N_by_N = ((S, N, N))
         S_by_N_by_2Nrf = ((S, N, 2 * flags.get_flag().n_rff))
         S_by_Nrf_by_D = ((S, flags.get_flag().n_rff, D))
+        Nrf_by_D = ((flags.get_flag().n_rff, D))
         # sampling for W
         z_W = tf.random_normal(S_by_N_by_N, dtype=ScalableLatnet.FLOAT)
         W = tf.multiply(z_W, tf.sqrt(sigma2)) + mu
@@ -230,6 +232,8 @@ class ScalableLatnet:
         prior_mu, prior_sigma2, prior_mu_gamma, prior_sigma2_gamma, prior_mu_omega, prior_sigma2_omega, prior_alpha = ScalableLatnet.get_priors(
             flags,
             D, N, T)
+        prior_sigma2_omega = tf.ones(
+            Nrf_by_D, dtype=ScalableLatnet.FLOAT) / lengthscale / lengthscale
         kl_W = ScalableLatnet.get_KL_normal(mu, sigma2, prior_mu, prior_sigma2)
         kl_G = ScalableLatnet.get_DKL_normal(mu_gamma, sigma2_gamma, prior_mu_gamma, prior_sigma2_gamma)
         kl_O = ScalableLatnet.get_DKL_normal(mu_omega, sigma2_omega, prior_mu_omega, prior_sigma2_omega)

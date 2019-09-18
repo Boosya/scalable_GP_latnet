@@ -10,14 +10,12 @@ import argparse
 # export OMP_NUM_THREADS=1
 
 
+# TODO add lengthscale back
 # TODO save best state so far
 # TODO fix sampling from standart normal in omega (prior fixed and var fixed)
 # TODO use 1000 random features
-# TODO set core settings - use one subject for one terminal
-# TODO try remove legthscale from learnable 
 # TODO random feature code - other implemention
 # TODO add noise that is missing, small one
-# TODO fix the seed
 # TODO histigram of p matrix and compare
 # TODO refactor code
 # TODO add logging for every time used and value
