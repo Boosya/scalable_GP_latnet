@@ -8,9 +8,9 @@ class Flags():
 		flags.DEFINE_string('learn_Omega', 'prior_fixed', 'How to treat Omega - fixed (from the prior), optimized, or learned variationally')
 		flags.DEFINE_integer("seed", 1, "Seed for random tf and np operations")
 
-		flags.DEFINE_integer('n_iterations', 7, 'Number of iterations of variational and hyper parameters learning')
-		flags.DEFINE_integer('var_steps', 2000, 'Number of optimizations of variational parameters')
-		flags.DEFINE_integer('hyp_steps', 2000, 'Number of optimizations of hyper parameters')
+		flags.DEFINE_integer('n_iterations', 2, 'Number of iterations of variational and hyper parameters learning')
+		flags.DEFINE_integer('var_steps', 10, 'Number of optimizations of variational parameters')
+		flags.DEFINE_integer('hyp_steps', 10, 'Number of optimizations of hyper parameters')
 		flags.DEFINE_integer('display_step', 10, 'Display progress every FLAGS.display_step iterations')
 		flags.DEFINE_float('var_learning_rate', 0.01, 'Variational learning rate')
 		flags.DEFINE_float('hyp_learning_rate', 0.001, 'Hyper parameters learning rate')

@@ -6,10 +6,7 @@ import time
 
 
 # export OMP_NUM_THREADS=1
-# config = tf.ConfigProto()
-# config.intra_op_parallelism_threads = 44
-# config.inter_op_parallelism_threads = 44
-# tf.Session(config=config)
+
 
 # TODO save best state so far
 # TODO fix sampling from standart normal in omega (prior fixed and var fixed)
@@ -21,9 +18,10 @@ import time
 # TODO fix the seed
 # TODO histigram of p matrix and compare
 # TODO refactor code
+# TODO try small noise
 
 
-from scalable_latnet.latnet import Latnet
+from scalable_latnet.scalablelatnet import ScalableLatnet
 from scalable_latnet.expr_util import ExprUtil
 import numpy as np
 import logging
@@ -137,10 +135,10 @@ def functional_connectivity_sim(Y, folder_name, subject, logger_name):
     logger.debug("Parameters of the model")
     flags.log_flags(logger)
     elbo_, sigma2_n_,  mu, sigma2_, mu_gamma, sigma2_gamma_, mu_omega, sigma2_omega_, alpha_, lengthscale, variance = \
-        Latnet.optimize(flags, subject, D, N_rf,  norm_t, Y_data, opt_targets.keys(), \
-            n_total_iter, opt_targets, logger,init_sigma2_n, init_lenthscale, \
-            init_variance, init_p, lambda_prior, lambda_postetior, var_lr, hyp_lr, \
-            inv_calculation,n_approx_terms,n_samples, log_every)
+        ScalableLatnet.optimize(flags, subject, D, N_rf, norm_t, Y_data, opt_targets.keys(), \
+                                n_total_iter, opt_targets, logger, init_sigma2_n, init_lenthscale, \
+                                init_variance, init_p, lambda_prior, lambda_postetior, var_lr, hyp_lr, \
+                                inv_calculation, n_approx_terms, n_samples, log_every)
     end_time = time.time()
     ExprUtil.write_to_file_callback(path, logger)(
         alpha_, mu, sigma2_, sigma2_n_, lengthscale, variance)
