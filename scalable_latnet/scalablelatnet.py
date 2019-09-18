@@ -335,8 +335,8 @@ class ScalableLatnet:
     def optimize(flags, s, D,  t, Y, logger, callback=None):
 
         config = tf.ConfigProto()
-        config.intra_op_parallelism_threads = 44
-        config.inter_op_parallelism_threads = 44
+        config.intra_op_parallelism_threads = 1
+        config.inter_op_parallelism_threads = 1
 
         ## Set random seed for tensorflow and numpy operations
         tf.set_random_seed(flags.get_flag().seed)
