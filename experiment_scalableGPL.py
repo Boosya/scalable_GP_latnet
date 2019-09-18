@@ -1,8 +1,27 @@
 import csv
 # import sys
-
+from flags import Flags
 import pandas
 import time
+
+
+# export OMP_NUM_THREADS=1
+# config = tf.ConfigProto()
+# config.intra_op_parallelism_threads = 44
+# config.inter_op_parallelism_threads = 44
+# tf.Session(config=config)
+
+# TODO save best state so far
+# TODO fix sampling from standart normal in omega (prior fixed and var fixed)
+# TODO use 1000 random features
+# TODO set core settings - use one subject for one terminal
+# TODO try remove legthscale from learnable 
+# TODO random feature code - other implemention
+# TODO add noise that is missing
+# TODO fix the seed
+# TODO histigram of p matrix and compare
+# TODO refactor code
+
 
 from scalable_latnet.latnet import Latnet
 from scalable_latnet.expr_util import ExprUtil
@@ -73,7 +92,7 @@ def functional_connectivity_group(config):
     return logger_name
 
 
-def functional_connectivity_sim(Y, folder_name, s, logger_name):
+def functional_connectivity_sim(Y, folder_name, subject, logger_name):
     start_time = time.time()
 
     path = RESULTS + folder_name
@@ -108,13 +127,20 @@ def functional_connectivity_sim(Y, folder_name, s, logger_name):
     init_p = 0.5
     var_lr = 0.01
     hyp_lr = 0.001
-    n_samples = 200
-    approximate_kernel = True
+    n_samples = 10
+    
+    log_every = 10
+    inv_calculation = 'approx'
+    n_approx_terms = 5
+
+    flags = Flags(T)
+    logger.debug("Parameters of the model")
+    flags.log_flags(logger)
     elbo_, sigma2_n_,  mu, sigma2_, mu_gamma, sigma2_gamma_, mu_omega, sigma2_omega_, alpha_, lengthscale, variance = \
-        Latnet.optimize(s, D, N_rf,  norm_t, Y_data, opt_targets.keys(), \
+        Latnet.optimize(flags, subject, D, N_rf,  norm_t, Y_data, opt_targets.keys(), \
             n_total_iter, opt_targets, logger,init_sigma2_n, init_lenthscale, \
             init_variance, init_p, lambda_prior, lambda_postetior, var_lr, hyp_lr, \
-            n_samples, approximate_kernel)
+            inv_calculation,n_approx_terms,n_samples, log_every)
     end_time = time.time()
     ExprUtil.write_to_file_callback(path, logger)(
         alpha_, mu, sigma2_, sigma2_n_, lengthscale, variance)
@@ -122,6 +148,7 @@ def functional_connectivity_sim(Y, folder_name, s, logger_name):
     with open(path + '/timing.csv', "w") as csvFile:
         Fileout = csv.writer(csvFile, delimiter=',', quoting=csv.QUOTE_ALL)
         Fileout.writerow(csvdata)
+    flags.del_all_flags()
 
 
 if __name__ == '__main__':
@@ -131,13 +158,16 @@ if __name__ == '__main__':
     configs = []
     # methods = ("super_scalableGPL","latnet","scalableGPL")
     methods = ["scalableGPL"]
-    n_workers = 4
+    n_workers = 1
     for method in methods:
-        for sims in ['sim1', 'sim2', 'sim3']:
+        for sims in ['sim2']:
+        # for sims in ['sim1', 'sim2', 'sim3']:
             """sims: which simulation in the dataset """
-            for Ti in [50, 100, 200]:
+            # for Ti in [50, 100, 200]:
+            for Ti in [100]:
                 """Ti: number of observations"""
-                for s in range(N_OBJECTS):
+                # for s in range(N_OBJECTS):
+                for s in range(1):
                     configs.append({'sims': sims, 'Ti': Ti, 's': s, 'output_folder': 'fmri/fmri_' +
                                     sims+'_'+method+'/', 'input_file': 'fmri_sim/ts_'+sims+'.csv'})
 
