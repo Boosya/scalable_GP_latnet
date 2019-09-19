@@ -8,7 +8,7 @@ class Flags():
 		flags.DEFINE_string("sim", "sim2", "which dataset to work with")
 		flags.DEFINE_integer("Ti", 100, "number of observations per node in dataset")
 		flags.DEFINE_integer("s", 25, "data for which subject to use")
-		flags.DEFINE_string('learn_Omega', 'prior_fixed', 'How to treat Omega - fixed (from the prior), optimized, or learned variationally')
+		flags.DEFINE_string('learn_Omega', 'var-fixed', 'How to treat Omega - fixed (from the prior), optimized, or learned variationally [prior_fixed, var-fixed, var-resampled]')
 		flags.DEFINE_integer("seed", 1, "Seed for random tf and np operations")
 
 		flags.DEFINE_integer('n_iterations', 7, 'Number of iterations of variational and hyper parameters learning')
@@ -18,7 +18,7 @@ class Flags():
 		flags.DEFINE_float('var_learning_rate', 0.01, 'Variational learning rate')
 		flags.DEFINE_float('hyp_learning_rate', 0.001, 'Hyper parameters learning rate')
 
-		flags.DEFINE_integer('n_mc', 200, 'Number of Monte Carlo samples used to compute stochastic gradients')
+		flags.DEFINE_integer('n_mc', 10, 'Number of Monte Carlo samples used to compute stochastic gradients')
 		flags.DEFINE_integer('n_rff', 500, 'Number of random features for kernel approximation using random feature expansion')
 
 		flags.DEFINE_float('lambda_prior', 1., 'Prior for lambda for concrete distribution')

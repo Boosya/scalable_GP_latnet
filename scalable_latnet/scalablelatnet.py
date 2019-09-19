@@ -212,8 +212,16 @@ class ScalableLatnet:
         Gamma = tf.multiply(z_G, tf.sqrt(sigma2_gamma)) + mu_gamma
 
         # Omega
-        z_O = tf.random_normal(S_by_Nrf_by_D, dtype=ScalableLatnet.FLOAT)
-        Omega = tf.multiply(z_O, tf.sqrt(sigma2_omega)) + mu_omega
+        if flags.get_flag().learn_Omega == 'var-resampled':
+            z_O = tf.random_normal(S_by_Nrf_by_D, dtype=ScalableLatnet.FLOAT)
+            Omega = tf.multiply(z_O, tf.sqrt(sigma2_omega)) + mu_omega
+        elif flags.get_flag().learn_Omega == 'var-fixed':
+            z_O = omega_single_normal
+            Omega = tf.multiply(z_O, tf.sqrt(sigma2_omega)) + mu_omega
+        elif flags.get_flag().learn_Omega == 'prior-fixed':
+            Omega = tf.random_normal(S_by_Nrf_by_D, dtype=ScalableLatnet.FLOAT)
+        else:
+            raise Exception
 
         # sampling for A
         u = tf.random_uniform(S_by_N_by_N, minval=0, maxval=1, dtype=ScalableLatnet.FLOAT)
@@ -320,6 +328,10 @@ class ScalableLatnet:
         ## Set random seed for tensorflow and numpy operations
         tf.set_random_seed(flags.get_flag().seed)
         np.random.seed(flags.get_flag().seed)
+
+        S_by_Nrf_by_D = (flags.get_flag().n_mc,flags.get_flag().n_rff,D)
+        global omega_single_normal 
+        omega_single_normal = np.random.normal(loc=0, scale=1, size=S_by_Nrf_by_D)
 
         with tf.Session(config=config) as sess:
             var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, \
