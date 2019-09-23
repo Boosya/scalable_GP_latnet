@@ -8,7 +8,8 @@ class Flags():
 		flags.DEFINE_string("sim", "sim2", "which dataset to work with")
 		flags.DEFINE_integer("Ti", 100, "number of observations per node in dataset")
 		flags.DEFINE_integer("s", 25, "data for which subject to use")
-		flags.DEFINE_string('learn_Omega', 'var-fixed', 'How to treat Omega - fixed (from the prior), optimized, or learned variationally [prior_fixed, var-fixed, var-resampled]')
+		flags.DEFINE_string('learn_Omega', 'var-resampled', 'How to treat Omega - fixed (from the prior), optimized, or learned variationally [prior_fixed, var-fixed, var-resampled]')
+		flags.DEFINE_string('learn_lengthscale','no', 'Whether to include lengthscale in tagrgets or not')
 		flags.DEFINE_integer("seed", 1, "Seed for random tf and np operations")
 
 		flags.DEFINE_integer('n_iterations', 7, 'Number of iterations of variational and hyper parameters learning')
@@ -22,7 +23,7 @@ class Flags():
 		flags.DEFINE_integer('n_rff', 500, 'Number of random features for kernel approximation using random feature expansion')
 
 		flags.DEFINE_float('lambda_prior', 1., 'Prior for lambda for concrete distribution')
-		flags.DEFINE_float('lambda_postetior', 0.15, 'Posterior for lambda for concrete distribution')
+		flags.DEFINE_float('lambda_postetior', 1., 'Posterior for lambda for concrete distribution')
 		flags.DEFINE_float('init_sigma2_n', 0.31, 'Prior over observation noise variance.')
 		flags.DEFINE_float('init_sigma2_g', 0.0001, 'Prior for connection noise variance')
 		flags.DEFINE_float('init_variance', 0.5, 'Prior for gp variance')

@@ -52,7 +52,7 @@ class ScalableLatnet:
         return optimizer.apply_gradients(grad_var_pairs), grads, ScalableLatnet.contains_nan(grads)
 
     @staticmethod
-    def run_model(logger,flags, D, t, Y):
+    def run_model(logger, flags, D, t, Y):
 
         # get variables that will be optimized.
         log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance = \
@@ -60,7 +60,7 @@ class ScalableLatnet:
 
         # get KL terms of ELL terms.
         kl_W, kl_G, kl_O, kl_A, ell, first, second, third, eig_check = \
-            ScalableLatnet.get_elbo(logger,flags, D, t, Y, tf.exp(log_sigma2_n), mu, tf.exp(log_sigma2), mu_gamma,
+            ScalableLatnet.get_elbo(logger, flags, D, t, Y, tf.exp(log_sigma2_n), mu, tf.exp(log_sigma2), mu_gamma,
                                     tf.exp(log_sigma2_gamma), mu_omega, tf.exp(log_sigma2_omega),
                                     tf.exp(log_alpha), tf.exp(log_lengthscale), tf.exp(log_variance))
 
@@ -74,10 +74,14 @@ class ScalableLatnet:
                                                             mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega,
                                                             log_alpha], flags.get_flag().var_learning_rate)
 
-        hyp_opt, _, hyp_nans = ScalableLatnet.get_opzimier(tf.negative(
+        if flags.get_flag().learn_lengthscale == 'yes':
+            hyp_opt, _, hyp_nans = ScalableLatnet.get_opzimier(tf.negative(
             elbo), [log_sigma2_n, log_variance, log_lengthscale], flags.get_flag().hyp_learning_rate)
+        else:
+            hyp_opt, _, hyp_nans = ScalableLatnet.get_opzimier(tf.negative(
+            elbo), [log_sigma2_n, log_variance], flags.get_flag().hyp_learning_rate)
 
-        return  var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance, var_nans, hyp_nans
+        return var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance, var_nans, hyp_nans
 
     @staticmethod
     def logp_logistic(X, alpha, lambda_):
@@ -127,7 +131,7 @@ class ScalableLatnet:
         Nrf_by_D = (flags.get_flag().n_rff, D)
 
         p = flags.get_flag().init_p
-        lengthscale = tf.constant(flags.get_flag().init_lengthscale,dtype=ScalableLatnet.FLOAT)
+        lengthscale = tf.constant(flags.get_flag().init_lengthscale, dtype=ScalableLatnet.FLOAT)
 
         prior_mu = tf.zeros(N_by_N, dtype=ScalableLatnet.FLOAT)
         prior_sigma2 = tf.multiply(
@@ -180,8 +184,8 @@ class ScalableLatnet:
         return log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance
 
     @staticmethod
-    def get_elbo(logger, flags, D, t, Y, sigma2_n, mu, sigma2, mu_gamma, sigma2_gamma, mu_omega, sigma2_omega, alpha,lengthscale,
-                 variance):
+    def get_elbo(logger, flags, D, t, Y, sigma2_n, mu, sigma2, mu_gamma, sigma2_gamma, mu_omega, sigma2_omega, alpha,
+                 lengthscale,variance):
 
         # number of nodes
         N = Y.shape[1]
@@ -240,19 +244,21 @@ class ScalableLatnet:
         prior_mu, prior_sigma2, prior_mu_gamma, prior_sigma2_gamma, prior_mu_omega, prior_sigma2_omega, prior_alpha = ScalableLatnet.get_priors(
             flags,
             D, N, T)
-        prior_sigma2_omega = tf.ones(
+        if flags.get_flag().learn_lengthscale == 'yes':
+            prior_sigma2_omega = tf.ones(
             Nrf_by_D, dtype=ScalableLatnet.FLOAT) / lengthscale / lengthscale
         kl_W = ScalableLatnet.get_KL_normal(mu, sigma2, prior_mu, prior_sigma2)
         kl_G = ScalableLatnet.get_DKL_normal(mu_gamma, sigma2_gamma, prior_mu_gamma, prior_sigma2_gamma)
         kl_O = ScalableLatnet.get_DKL_normal(mu_omega, sigma2_omega, prior_mu_omega, prior_sigma2_omega)
         kl_A = ScalableLatnet.get_KL_logistic(_A, alpha, prior_lambda_, posterior_lambda_, prior_alpha)
-        ell, first, second, third, eig_check = ScalableLatnet.batch_ll_new(logger,flags, t, Y, sigma2_n, A, W, Gamma, Omega,
+        ell, first, second, third, eig_check = ScalableLatnet.batch_ll_new(logger, flags, t, Y, sigma2_n, A, W, Gamma,
+                                                                           Omega,
                                                                            variance,
                                                                            N, D, flags.get_flag().n_rff, T, S)
         return kl_W, kl_G, kl_O, kl_A, ell, first, second, third, eig_check
 
     @staticmethod
-    def batch_ll_new(logger,flags, t, Y, sigma2_n, A, W, Gamma, Omega, variance, N, D, N_rf, T, S):
+    def batch_ll_new(logger, flags, t, Y, sigma2_n, A, W, Gamma, Omega, variance, N, D, N_rf, T, S):
 
         Omega_temp = tf.reshape(Omega, [S * N_rf, D])
         Fi_under = tf.reshape(
@@ -319,7 +325,7 @@ class ScalableLatnet:
         return M_chol
 
     @staticmethod
-    def optimize(flags, s, D,  t, Y, logger, callback=None):
+    def optimize(flags, s, D, t, Y, logger, callback=None):
 
         config = tf.ConfigProto()
         config.intra_op_parallelism_threads = 1
@@ -329,15 +335,15 @@ class ScalableLatnet:
         tf.set_random_seed(flags.get_flag().seed)
         np.random.seed(flags.get_flag().seed)
 
-        S_by_Nrf_by_D = (flags.get_flag().n_mc,flags.get_flag().n_rff,D)
-        global omega_single_normal 
+        S_by_Nrf_by_D = (flags.get_flag().n_mc, flags.get_flag().n_rff, D)
+        global omega_single_normal
         omega_single_normal = np.random.normal(loc=0, scale=1, size=S_by_Nrf_by_D)
 
         with tf.Session(config=config) as sess:
             var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, \
             log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, \
             log_lengthscale, log_variance, var_nans, hyp_nans = \
-                ScalableLatnet.run_model(logger,flags, D, tf.cast(t, ScalableLatnet.FLOAT), Y)
+                ScalableLatnet.run_model(logger, flags, D, tf.cast(t, ScalableLatnet.FLOAT), Y)
 
             # train_writer = tf.summary.FileWriter('results/fmri/fmri_sim2_scalableGPL/train', sess.graph)
             init_op = tf.initializers.global_variables()
@@ -345,8 +351,8 @@ class ScalableLatnet:
 
             # current global iteration over optimization steps.
             _iter = 0
+            best_elbo = None
 
-            
             while flags.get_flag().n_iterations is None or _iter < flags.get_flag().n_iterations:
 
                 logger.debug("\nSUBJECT %d: ITERATION %d STARTED\n" %
@@ -359,6 +365,8 @@ class ScalableLatnet:
                             output = sess.run(
                                 [elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, var_opt,
                                  var_nans])
+                            if not best_elbo or output[0] > best_elbo:
+                                best_elbo = output[0]
                             if i % flags.get_flag().display_step == 0:
                                 logger.debug(
                                     '\tlocal {:d} iter elbo: {:.0f} (KL W={:.0f}, KL A={:.0f}, KL G={:.0f},KL O={:.0f}, ell={:.0f}, first={:.0f}, second={:.0f}, third ={:f}, eig_check = {}), {:d} nan in grads (err= {:d}). '.format(

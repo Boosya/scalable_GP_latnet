@@ -11,7 +11,6 @@ import argparse
 
 
 # TODO save best state so far
-# TODO fix sampling from standart normal in omega (prior fixed and var fixed)
 # TODO use 1000 random features
 # TODO random feature code - other implemention
 # TODO add noise that is missing, small one
