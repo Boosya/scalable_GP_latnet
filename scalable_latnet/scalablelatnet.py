@@ -74,11 +74,11 @@ class ScalableLatnet:
                                                             mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega,
                                                             log_alpha], flags.get_flag().var_learning_rate)
 
-        if flags.get_flag().learn_lengthscale == 'yes':
-            hyp_opt, _, hyp_nans = ScalableLatnet.get_opzimier(tf.negative(
-            elbo), [log_sigma2_n, log_variance, log_lengthscale], flags.get_flag().hyp_learning_rate)
-        else:
-            hyp_opt, _, hyp_nans = ScalableLatnet.get_opzimier(tf.negative(
+        # if flags.get_flag().learn_lengthscale == 'yes':
+        #     hyp_opt, _, hyp_nans = ScalableLatnet.get_opzimier(tf.negative(
+        #     elbo), [log_sigma2_n, log_variance, log_lengthscale], flags.get_flag().hyp_learning_rate)
+        # else:
+        hyp_opt, _, hyp_nans = ScalableLatnet.get_opzimier(tf.negative(
             elbo), [log_sigma2_n, log_variance], flags.get_flag().hyp_learning_rate)
 
         return var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance, var_nans, hyp_nans
@@ -244,8 +244,8 @@ class ScalableLatnet:
         prior_mu, prior_sigma2, prior_mu_gamma, prior_sigma2_gamma, prior_mu_omega, prior_sigma2_omega, prior_alpha = ScalableLatnet.get_priors(
             flags,
             D, N, T)
-        if flags.get_flag().learn_lengthscale == 'yes':
-            prior_sigma2_omega = tf.ones(
+        # if flags.get_flag().learn_lengthscale == 'yes':
+        prior_sigma2_omega = tf.ones(
             Nrf_by_D, dtype=ScalableLatnet.FLOAT) / lengthscale / lengthscale
         kl_W = ScalableLatnet.get_KL_normal(mu, sigma2, prior_mu, prior_sigma2)
         kl_G = ScalableLatnet.get_DKL_normal(mu_gamma, sigma2_gamma, prior_mu_gamma, prior_sigma2_gamma)
@@ -328,8 +328,8 @@ class ScalableLatnet:
     def optimize(flags, s, D, t, Y, logger, callback=None):
 
         config = tf.ConfigProto()
-        config.intra_op_parallelism_threads = 1
-        config.inter_op_parallelism_threads = 1
+        config.intra_op_parallelism_threads = 3
+        config.inter_op_parallelism_threads = 3
 
         ## Set random seed for tensorflow and numpy operations
         tf.set_random_seed(flags.get_flag().seed)

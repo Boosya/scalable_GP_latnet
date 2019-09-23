@@ -12,18 +12,18 @@ class Flags():
 		flags.DEFINE_string('learn_lengthscale','no', 'Whether to include lengthscale in tagrgets or not')
 		flags.DEFINE_integer("seed", 1, "Seed for random tf and np operations")
 
-		flags.DEFINE_integer('n_iterations', 7, 'Number of iterations of variational and hyper parameters learning')
+		flags.DEFINE_integer('n_iterations', 2, 'Number of iterations of variational and hyper parameters learning')
 		flags.DEFINE_integer('var_steps', 2000, 'Number of optimizations of variational parameters')
 		flags.DEFINE_integer('hyp_steps', 2000, 'Number of optimizations of hyper parameters')
 		flags.DEFINE_integer('display_step', 10, 'Display progress every FLAGS.display_step iterations')
-		flags.DEFINE_float('var_learning_rate', 0.01, 'Variational learning rate')
+		flags.DEFINE_float('var_learning_rate', 0.001, 'Variational learning rate')
 		flags.DEFINE_float('hyp_learning_rate', 0.001, 'Hyper parameters learning rate')
 
 		flags.DEFINE_integer('n_mc', 10, 'Number of Monte Carlo samples used to compute stochastic gradients')
 		flags.DEFINE_integer('n_rff', 500, 'Number of random features for kernel approximation using random feature expansion')
 
 		flags.DEFINE_float('lambda_prior', 1., 'Prior for lambda for concrete distribution')
-		flags.DEFINE_float('lambda_postetior', 1., 'Posterior for lambda for concrete distribution')
+		flags.DEFINE_float('lambda_postetior', .15, 'Posterior for lambda for concrete distribution')
 		flags.DEFINE_float('init_sigma2_n', 0.31, 'Prior over observation noise variance.')
 		flags.DEFINE_float('init_sigma2_g', 0.0001, 'Prior for connection noise variance')
 		flags.DEFINE_float('init_variance', 0.5, 'Prior for gp variance')
