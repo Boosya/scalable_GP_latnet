@@ -1,50 +1,49 @@
-import tensorflow as tf
 from numpy import sqrt
 
+# tf_upgrade_v2 \
+#   --infile scalable_GP_latnet/scalable_latnet/scalablelatnet.py \
+#   --outfile scalable_GP_latnet/scalable_latnet/scalablelatnet_v2.py
+
 class Flags():
-	def __init__(self, T):
-		flags = tf.app.flags
-		# flags.DEFINE_integer('batch_size', 50, 'Batch size.  ')
-		flags.DEFINE_string("sim", "sim2", "which dataset to work with")
-		flags.DEFINE_integer("Ti", 100, "number of observations per node in dataset")
-		flags.DEFINE_integer("s", 25, "data for which subject to use")
-		flags.DEFINE_string('learn_Omega', 'var-resampled', 'How to treat Omega - fixed (from the prior), optimized, or learned variationally [prior_fixed, var-fixed, var-resampled]')
-		flags.DEFINE_string('learn_lengthscale','no', 'Whether to include lengthscale in tagrgets or not')
-		flags.DEFINE_integer("seed", 1, "Seed for random tf and np operations")
+	def __init__(self, T, sims, Ti, s):
+		self.flags = {}
+		self.flags['sim'] = sims
+		self.flags['Ti'] = Ti
+		self.flags['s'] = s
+		self.flags['seed'] = 1
 
-		flags.DEFINE_integer('n_iterations', 2, 'Number of iterations of variational and hyper parameters learning')
-		flags.DEFINE_integer('var_steps', 2000, 'Number of optimizations of variational parameters')
-		flags.DEFINE_integer('hyp_steps', 2000, 'Number of optimizations of hyper parameters')
-		flags.DEFINE_integer('display_step', 10, 'Display progress every FLAGS.display_step iterations')
-		flags.DEFINE_float('var_learning_rate', 0.001, 'Variational learning rate')
-		flags.DEFINE_float('hyp_learning_rate', 0.001, 'Hyper parameters learning rate')
+		# How to treat Omega - fixed (from the prior), optimized, or learned variationally [prior_fixed, var-fixed, var-resampled]
+		self.flags['learn_Omega'] = 'var-resampled'
+		self.flags['learn_lengthscale'] = 'no'
+		# Way to approximate inverse of the matrix :[approx,solver,cholesky,matrix_inverse]
+		self.flags['inv_calculation'] = 'solver'
+		self.flags['n_approx_terms'] = 5
 
-		flags.DEFINE_integer('n_mc', 10, 'Number of Monte Carlo samples used to compute stochastic gradients')
-		flags.DEFINE_integer('n_rff', 500, 'Number of random features for kernel approximation using random feature expansion')
+		self.flags['n_iterations'] = 2
+		self.flags['var_steps'] = 2000
+		self.flags['hyp_steps'] = 2000
+		self.flags['display_step'] = 10
+		self.flags['var_learning_rate'] = 0.001
+		self.flags['hyp_learning_rate'] = 0.001
+		self.flags['n_mc'] = 10
+		self.flags['n_rff'] = 500
 
-		flags.DEFINE_float('lambda_prior', 1., 'Prior for lambda for concrete distribution')
-		flags.DEFINE_float('lambda_postetior', .15, 'Posterior for lambda for concrete distribution')
-		flags.DEFINE_float('init_sigma2_n', 0.31, 'Prior over observation noise variance.')
-		flags.DEFINE_float('init_sigma2_g', 0.0001, 'Prior for connection noise variance')
-		flags.DEFINE_float('init_variance', 0.5, 'Prior for gp variance')
-		flags.DEFINE_float('init_lengthscale', 1./sqrt(T), 'Prior for gp lengthscale')
-		flags.DEFINE_float('init_p', 0.5, 'Prior over p')
-		flags.DEFINE_string('inv_calculation', 'solver', 'Way to approximate inverse of the matrix :[approx,solver,cholesky,matrix_inverse]')
-		flags.DEFINE_integer('n_approx_terms',5,'How many terms to use in Neuman approximation')
-		self.FLAGS = flags.FLAGS
+		self.flags['lambda_prior'] = 1.
+		self.flags['lambda_postetior'] = .15
+		self.flags['init_sigma2_n'] = 0.31
+		self.flags['init_variance'] = 0.5
+		self.flags['init_lengthscale'] = 1./sqrt(T)
+		self.flags['init_p'] = 0.5
 
-	def get_flag(self):
-		return self.FLAGS
+	def get_flag(self, key):
+		return self.flags.get(key)
 
 	def del_all_flags(self):
-		flags_dict = self.FLAGS._flags()
-		keys_list = [keys for keys in flags_dict]
-		for keys in keys_list:
-			self.FLAGS.__delattr__(keys)
+		del self.flags
 	
 	def log_flags(self, logger):
-		for flag in self.FLAGS.flag_values_dict():
-			logger.debug("\t {}: {}".format(flag, self.FLAGS.flag_values_dict().get(flag)))
+		for flag in self.flags:
+			logger.debug("\t {}: {}".format(flag, self.flags.get(flag)))
 
 
 # def create_or_rewrite_dir(dir_name):

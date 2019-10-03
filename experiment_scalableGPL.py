@@ -63,11 +63,11 @@ def functional_connectivity_group(config):
     # for standardizing the inputs
     for i in range(data.shape[1]):
         Y[0][i] = (Y[0][i] - mean_) / std_
-    functional_connectivity_sim(Y[0], folder_name, s, logger_name)
+    functional_connectivity_sim(Y[0], folder_name, s, logger_name, sims, Ti, s)
     return logger_name
 
 
-def functional_connectivity_sim(Y, folder_name, subject, logger_name):
+def functional_connectivity_sim(Y, folder_name, subject, logger_name, sims, Ti, s):
     start_time = time.time()
 
     path = RESULTS + folder_name
@@ -90,11 +90,11 @@ def functional_connectivity_sim(Y, folder_name, subject, logger_name):
     norm_t = (t[0] - np.mean(t[0])) / np.double(np.std(t[0]))
     Y_data = np.hstack(Y)
 
-    flags = Flags(T)
+    myflags = Flags(T, sims, Ti, s)
     logger.debug("Parameters of the model")
-    flags.log_flags(logger)
+    myflags.log_flags(logger)
     elbo_, sigma2_n_,  mu, sigma2_, mu_gamma, sigma2_gamma_, mu_omega, sigma2_omega_, alpha_, lengthscale, variance = \
-        ScalableLatnet.optimize(flags, subject, D, norm_t, Y_data,  logger)
+        ScalableLatnet.optimize(myflags, subject, D, norm_t, Y_data,  logger)
     end_time = time.time()
     ExprUtil.write_to_file_callback(path, logger)(
         alpha_, mu, sigma2_, sigma2_n_, lengthscale, variance)
