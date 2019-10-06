@@ -15,22 +15,22 @@ class Flags():
 
         # How to treat Omega - fixed (from the prior), optimized, or learned variationally [prior_fixed, var-fixed, var-resampled]
         self.flags['learn_Omega'] = 'var-resampled'
-        self.flags['learn_lengthscale'] = 'no'
+        self.flags['learn_lengthscale'] = 'yes'
         # Way to approximate inverse of the matrix :[approx,solver,cholesky,matrix_inverse]
         self.flags['inv_calculation'] = 'solver'
         self.flags['n_approx_terms'] = 5
 
-        self.flags['n_iterations'] = 2
+        self.flags['n_iterations'] = 7
         self.flags['var_steps'] = 2000
         self.flags['hyp_steps'] = 2000
         self.flags['display_step'] = 10
-        self.flags['var_learning_rate'] = 0.001
+        self.flags['var_learning_rate'] = 0.01
         self.flags['hyp_learning_rate'] = 0.001
         self.flags['n_mc'] = 10
         self.flags['n_rff'] = 500
 
         self.flags['lambda_prior'] = 1.
-        self.flags['lambda_postetior'] = .15
+        self.flags['lambda_posterior'] = .15
         self.flags['init_sigma2_n'] = 0.31
         self.flags['init_variance'] = 0.5
         self.flags['init_lengthscale'] = 1. / sqrt(T)

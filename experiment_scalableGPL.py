@@ -92,8 +92,9 @@ def functional_connectivity_sim(Y,folder_name,subject,logger_name,sims,Ti,s):
     myflags = Flags(T,sims,Ti,s)
     logger.debug("Parameters of the model")
     myflags.log_flags(logger)
+    myLatnet = ScalableLatnet(myflags, subject, D, norm_t, Y_data,  logger)
     elbo_, sigma2_n_,  mu, sigma2_, mu_gamma, sigma2_gamma_, mu_omega, sigma2_omega_, alpha_, lengthscale, variance = \
-        ScalableLatnet.optimize(myflags, subject, D, norm_t, Y_data,  logger)
+        myLatnet.optimize()
     end_time = time.time()
     ExprUtil.write_to_file_callback(path, logger)(
         alpha_, mu, sigma2_, sigma2_n_, lengthscale, variance)
