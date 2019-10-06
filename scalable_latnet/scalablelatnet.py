@@ -69,17 +69,18 @@ class ScalableLatnet:
                tf.negative(kl_O) + tf.negative(kl_A) + ell
 
         # get the operation for optimizing variational parameters
-        var_opt, _, var_nans = ScalableLatnet.get_opzimier(tf.negative(elbo),
+        if flags.get_flag('learn_Omega') == 'prior-fixed':
+            var_opt,_,var_nans = ScalableLatnet.get_opzimier(tf.negative(elbo),
+                                                             [mu,log_sigma2,mu_gamma,log_sigma2_gamma,log_alpha],
+                                                             flags.get_flag('var_learning_rate'))
+        else:
+            var_opt, _, var_nans = ScalableLatnet.get_opzimier(tf.negative(elbo),
                                                            [mu, log_sigma2,
                                                             mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega,
-                                                            log_alpha], flags.get_flag().var_learning_rate)
+                                                            log_alpha], flags.get_flag('var_learning_rate'))
 
-        # if flags.get_flag().learn_lengthscale == 'yes':
-        #     hyp_opt, _, hyp_nans = ScalableLatnet.get_opzimier(tf.negative(
-        #     elbo), [log_sigma2_n, log_variance, log_lengthscale], flags.get_flag().hyp_learning_rate)
-        # else:
         hyp_opt, _, hyp_nans = ScalableLatnet.get_opzimier(tf.negative(
-            elbo), [log_sigma2_n, log_variance], flags.get_flag().hyp_learning_rate)
+            elbo), [log_sigma2_n, log_variance, log_lengthscale], flags.get_flag('hyp_learning_rate'))
 
         return var_opt, hyp_opt, elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance, var_nans, hyp_nans
 
@@ -127,11 +128,11 @@ class ScalableLatnet:
     def get_priors(flags, D, N, T):
 
         N_by_N = (N, N)
-        N_by_2Nrf = (N, 2 * flags.get_flag().n_rff)
-        Nrf_by_D = (flags.get_flag().n_rff, D)
+        N_by_2Nrf = (N, 2 * flags.get_flag('n_rff'))
+        Nrf_by_D = (flags.get_flag('n_rff'), D)
 
-        p = flags.get_flag().init_p
-        lengthscale = tf.constant(flags.get_flag().init_lengthscale, dtype=ScalableLatnet.FLOAT)
+        p = flags.get_flag('init_p')
+        lengthscale = tf.constant(flags.get_flag('init_lengthscale'), dtype=ScalableLatnet.FLOAT)
 
         prior_mu = tf.zeros(N_by_N, dtype=ScalableLatnet.FLOAT)
         prior_sigma2 = tf.multiply(
@@ -172,14 +173,14 @@ class ScalableLatnet:
         log_alpha = tf.Variable(tf.log(prior_alpha), dtype=ScalableLatnet.FLOAT)
 
         log_sigma2_n = tf.Variable(
-            tf.log(tf.constant(flags.get_flag().init_sigma2_n, dtype=ScalableLatnet.FLOAT)), dtype=ScalableLatnet.FLOAT)
+            tf.log(tf.constant(flags.get_flag('init_sigma2_n'), dtype=ScalableLatnet.FLOAT)), dtype=ScalableLatnet.FLOAT)
 
         log_lengthscale = tf.Variable(
-            tf.log(tf.constant(flags.get_flag().init_lengthscale, dtype=ScalableLatnet.FLOAT)),
+            tf.log(tf.constant(flags.get_flag('init_lengthscale'), dtype=ScalableLatnet.FLOAT)),
             dtype=ScalableLatnet.FLOAT)
 
         log_variance = tf.Variable(
-            tf.log(tf.constant(flags.get_flag().init_variance, dtype=ScalableLatnet.FLOAT)), dtype=ScalableLatnet.FLOAT)
+            tf.log(tf.constant(flags.get_flag('init_variance'), dtype=ScalableLatnet.FLOAT)), dtype=ScalableLatnet.FLOAT)
 
         return log_sigma2_n, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega, log_alpha, log_lengthscale, log_variance
 
@@ -194,35 +195,38 @@ class ScalableLatnet:
         T = Y.shape[0]
 
         # number of Monte-Caro samples
-        S = flags.get_flag().n_mc
+        S = flags.get_flag('n_mc')
 
-        posterior_lambda_ = tf.constant(flags.get_flag().lambda_postetior, dtype=ScalableLatnet.FLOAT)
-        prior_lambda_ = tf.constant(flags.get_flag().lambda_prior, dtype=ScalableLatnet.FLOAT)
+        posterior_lambda_ = tf.constant(flags.get_flag('lambda_postetior'), dtype=ScalableLatnet.FLOAT)
+        prior_lambda_ = tf.constant(flags.get_flag('lambda_prior'), dtype=ScalableLatnet.FLOAT)
 
         eps = tf.constant(1e-20, dtype=ScalableLatnet.FLOAT)
         Y = tf.constant(Y, dtype=ScalableLatnet.FLOAT)
 
         S_by_N_by_N = ((S, N, N))
-        S_by_N_by_2Nrf = ((S, N, 2 * flags.get_flag().n_rff))
-        S_by_Nrf_by_D = ((S, flags.get_flag().n_rff, D))
-        Nrf_by_D = ((flags.get_flag().n_rff, D))
+        S_by_N_by_2Nrf = ((S, N, 2 * flags.get_flag('n_rff')))
+        S_by_Nrf_by_D = ((S, flags.get_flag('n_rff'), D))
+        Nrf_by_D = ((flags.get_flag('n_rff'), D))
         # sampling for W
         z_W = tf.random_normal(S_by_N_by_N, dtype=ScalableLatnet.FLOAT)
         W = tf.multiply(z_W, tf.sqrt(sigma2)) + mu
         W = tf.matrix_set_diag(W, tf.zeros((S, N), dtype=ScalableLatnet.FLOAT))
+        tf.Print(W,[W])  # This does nothing
+        W_ = tf.Print(W,[W])
+        logger.debug(W)
 
         # Gamma
         z_G = tf.random_normal(S_by_N_by_2Nrf, dtype=ScalableLatnet.FLOAT)
         Gamma = tf.multiply(z_G, tf.sqrt(sigma2_gamma)) + mu_gamma
 
         # Omega
-        if flags.get_flag().learn_Omega == 'var-resampled':
+        if flags.get_flag('learn_Omega') == 'var-resampled':
             z_O = tf.random_normal(S_by_Nrf_by_D, dtype=ScalableLatnet.FLOAT)
             Omega = tf.multiply(z_O, tf.sqrt(sigma2_omega)) + mu_omega
-        elif flags.get_flag().learn_Omega == 'var-fixed':
+        elif flags.get_flag('learn_Omega') == 'var-fixed':
             z_O = omega_single_normal
             Omega = tf.multiply(z_O, tf.sqrt(sigma2_omega)) + mu_omega
-        elif flags.get_flag().learn_Omega == 'prior-fixed':
+        elif flags.get_flag('learn_Omega') == 'prior-fixed':
             Omega = tf.random_normal(S_by_Nrf_by_D, dtype=ScalableLatnet.FLOAT)
         else:
             raise Exception
@@ -244,7 +248,6 @@ class ScalableLatnet:
         prior_mu, prior_sigma2, prior_mu_gamma, prior_sigma2_gamma, prior_mu_omega, prior_sigma2_omega, prior_alpha = ScalableLatnet.get_priors(
             flags,
             D, N, T)
-        # if flags.get_flag().learn_lengthscale == 'yes':
         prior_sigma2_omega = tf.ones(
             Nrf_by_D, dtype=ScalableLatnet.FLOAT) / lengthscale / lengthscale
         kl_W = ScalableLatnet.get_KL_normal(mu, sigma2, prior_mu, prior_sigma2)
@@ -254,7 +257,7 @@ class ScalableLatnet:
         ell, first, second, third, eig_check = ScalableLatnet.batch_ll_new(logger, flags, t, Y, sigma2_n, A, W, Gamma,
                                                                            Omega,
                                                                            variance,
-                                                                           N, D, flags.get_flag().n_rff, T, S)
+                                                                           N, D, flags.get_flag('n_rff'), T, S)
         return kl_W, kl_G, kl_O, kl_A, ell, first, second, third, eig_check
 
     @staticmethod
@@ -280,11 +283,11 @@ class ScalableLatnet:
         min_eig_check = abs(tf.reduce_min(eig_values)) < 1
         eig_check = max_eig_check & min_eig_check
 
-        approximate_inverse = flags.get_flag().inv_calculation
+        approximate_inverse = flags.get_flag('inv_calculation')
         if approximate_inverse == 'approx':
             v_current = tf.reshape(Z, [S, N, T])
             exp_Y = v_current
-            n_approx = flags.get_flag().n_approx_terms
+            n_approx = flags.get_flag('n_approx_terms')
             for i in range(n_approx):
                 v_current = tf.matmul(B, v_current)
                 exp_Y = tf.add(v_current, exp_Y)  # v + Bv
@@ -332,10 +335,10 @@ class ScalableLatnet:
         config.inter_op_parallelism_threads = 3
 
         ## Set random seed for tensorflow and numpy operations
-        tf.set_random_seed(flags.get_flag().seed)
-        np.random.seed(flags.get_flag().seed)
+        tf.set_random_seed(flags.get_flag('seed'))
+        np.random.seed(flags.get_flag('seed'))
 
-        S_by_Nrf_by_D = (flags.get_flag().n_mc, flags.get_flag().n_rff, D)
+        S_by_Nrf_by_D = (flags.get_flag('n_mc'), flags.get_flag('n_rff'), D)
         global omega_single_normal
         omega_single_normal = np.random.normal(loc=0, scale=1, size=S_by_Nrf_by_D)
 
@@ -353,21 +356,26 @@ class ScalableLatnet:
             _iter = 0
             best_elbo = None
 
-            while flags.get_flag().n_iterations is None or _iter < flags.get_flag().n_iterations:
+            while flags.get_flag('n_iterations') is None or _iter < flags.get_flag('n_iterations'):
 
                 logger.debug("\nSUBJECT %d: ITERATION %d STARTED\n" %
                              (s, _iter))
                 # optimizing variational parameters
-                if flags.get_flag().var_steps > 0:
+                if flags.get_flag('var_steps') > 0:
                     logger.debug("optimizing variational parameters")
-                    for i in range(0, flags.get_flag().var_steps):
+                    for i in range(0, flags.get_flag('var_steps')):
                         try:
                             output = sess.run(
                                 [elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, var_opt,
                                  var_nans])
-                            if not best_elbo or output[0] > best_elbo:
-                                best_elbo = output[0]
-                            if i % flags.get_flag().display_step == 0:
+                            if flags.get_flag('safe_best_stat') == 'yes':
+                                if not best_elbo or output[0] > best_elbo:
+                                    best_elbo = output[0]
+                                    elbo_,sigma2_n_,mu_,sigma2_,mu_gamma_,sigma2_gamma_,mu_omega_,sigma2_omega_,alpha_,lengthscale_,variance_ = sess.run(
+                                    (elbo,tf.exp(log_sigma2_n),mu,tf.exp(log_sigma2),mu_gamma,tf.exp(log_sigma2_gamma),
+                                     mu_omega,tf.exp(log_sigma2_omega),tf.exp(log_alpha),tf.exp(log_lengthscale),
+                                     tf.exp(log_variance)))
+                            if i % flags.get_flag('display_step') == 0:
                                 logger.debug(
                                     '\tlocal {:d} iter elbo: {:.0f} (KL W={:.0f}, KL A={:.0f}, KL G={:.0f},KL O={:.0f}, ell={:.0f}, first={:.0f}, second={:.0f}, third ={:f}, eig_check = {}), {:d} nan in grads (err= {:d}). '.format(
                                         i, output[0], output[1], output[2], output[3], output[4], output[5], output[6],
@@ -376,14 +384,21 @@ class ScalableLatnet:
                             logger.error(e.message)
 
                 # optimizing hyper parameters
-                if flags.get_flag().hyp_steps > 0:
+                if flags.get_flag('hyp_steps') > 0:
                     logger.debug("optimizing hyper parameters")
-                    for i in range(0, flags.get_flag().hyp_steps):
+                    for i in range(0, flags.get_flag('hyp_steps')):
                         try:
                             output = sess.run(
                                 [elbo, kl_W, kl_A, kl_G, kl_O, ell, first, second, third, eig_check, hyp_opt,
                                  hyp_nans])
-                            if i % flags.get_flag().display_step == 0:
+                            if flags.get_flag('safe_best_stat') == 'yes':
+                                if not best_elbo or output[0] > best_elbo:
+                                    best_elbo = output[0]
+                                    elbo_,sigma2_n_,mu_,sigma2_,mu_gamma_,sigma2_gamma_,mu_omega_,sigma2_omega_,alpha_,lengthscale_,variance_ = sess.run(
+                                        (elbo,tf.exp(log_sigma2_n),mu,tf.exp(log_sigma2),mu_gamma,tf.exp(log_sigma2_gamma),
+                                     mu_omega,tf.exp(log_sigma2_omega),tf.exp(log_alpha),tf.exp(log_lengthscale),
+                                     tf.exp(log_variance)))
+                            if i % flags.get_flag('display_step') == 0:
                                 logger.debug(
                                     '\tlocal {:d} iter elbo: {:.0f} (KL W={:.0f}, KL A={:.0f}, KL G={:.0f},KL O={:.0f}, ell={:.0f}, first={:.0f}, second={:.0f}, third = {:f}, eig_check = {}), {:d} nan in grads (err= {:d}). '.format(
                                         i, output[0], output[1], output[2], output[3], output[4], output[5], output[6],
@@ -399,9 +414,10 @@ class ScalableLatnet:
                              mu_omega, sigma2_omega_, sigma2_n_, lengthscale_, variance_)
                 _iter += 1
 
-            elbo_, sigma2_n_, mu_, sigma2_, mu_gamma, sigma2_gamma_, mu_omega, sigma2_omega_, alpha_, lengthscale, variance = \
+            if flags.get_flag('safe_best_stat') == 'no':
+                elbo_, sigma2_n_, mu_, sigma2_, mu_gamma_, sigma2_gamma_, mu_omega_, sigma2_omega_, alpha_, lengthscale_, variance_ = \
                 sess.run((elbo, tf.exp(log_sigma2_n), mu, tf.exp(log_sigma2), mu_gamma, tf.exp(log_sigma2_gamma),
                           mu_omega, tf.exp(
                     log_sigma2_omega), tf.exp(log_alpha), tf.exp(log_lengthscale), tf.exp(log_variance)))
 
-        return elbo_, sigma2_n_, mu_, sigma2_, mu_gamma, sigma2_gamma_, mu_omega, sigma2_omega_, alpha_, lengthscale, variance
+        return elbo_, sigma2_n_, mu_, sigma2_, mu_gamma_, sigma2_gamma_, mu_omega_, sigma2_omega_, alpha_, lengthscale_, variance_

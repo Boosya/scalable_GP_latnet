@@ -33,6 +33,10 @@ class ExprUtil:
         np.savetxt(path + '/mu' + '.csv', mu, delimiter=',', comments='')
         np.savetxt(path + '/sigma2' + '.csv', sigma2, delimiter=',', comments='')
         np.savetxt(path + '/alpha' + '.csv', alpha, delimiter=',', comments='')
+        A = alpha / (1.0 + alpha)
+        W = np.random.normal(loc=0, scale=1, size=mu.shape)*sigma2+mu
+        B = np.multiply(A,W)
+        np.savetxt(path + '/p_new' + '.csv',B,delimiter=',',comments='')
         np.savetxt(path + '/p' + '.csv', alpha / (1.0 + alpha), delimiter=',', comments='')
         np.savetxt(path + '/hyp' + '.csv', hyp, delimiter=',', comments='')
         logger.debug("finished writing results to the file")
