@@ -26,7 +26,7 @@ class ScalableLatnet:
         tf.compat.v1.set_random_seed(flags.get_flag('seed'))
         np.random.seed(flags.get_flag('seed'))
 
-        self.n_mc, self.n_rf, self.learn_omega, self.inv_calculation, self.n_approx_terms, self.n_iterations, self.n_var_steps, self.n_hyp_steps, self.display_step = self.get_model_settings(
+        self.n_mc, self.n_rf, self.learn_omega, self.inv_calculation, self.n_approx_terms, self.n_iterations, self.n_var_steps, self.n_hyp_steps, self.n_all_steps, self.display_step, self.return_best_state = self.get_model_settings(
             flags)
 
         self.init_p, self.init_lengthscale, self.init_sigma2_n, self.init_variance, self.posterior_lambda_, self.prior_lambda_ = self.get_hyperparameters(
@@ -61,10 +61,24 @@ class ScalableLatnet:
                                                                [self.log_sigma2_n, self.log_variance,
                                                                 self.log_lengthscale],
                                                                flags.get_flag('hyp_learning_rate'))
+            # get general optimization parameters
+            self.all_opt, _, self.all_nans = self.get_opzimier(tf.negative(self.elbo),
+                                                               [self.mu, self.log_sigma2, self.mu_gamma,
+                                                                self.log_sigma2_gamma, self.mu_omega,
+                                                                self.log_sigma2_omega, self.log_alpha, self.log_sigma2_n, self.log_variance,
+                                                                self.log_lengthscale],
+                                                               flags.get_flag('all_learning_rate'))
         else:
             self.hyp_opt, _, self.hyp_nans = self.get_opzimier(tf.negative(self.elbo),
                                                                [self.log_sigma2_n, self.log_variance],
                                                                flags.get_flag('hyp_learning_rate'))
+            # get general optimization parameters
+            self.all_opt, _, self.all_nans = self.get_opzimier(tf.negative(self.elbo),
+                                                               [self.mu, self.log_sigma2, self.mu_gamma,
+                                                                self.log_sigma2_gamma, self.mu_omega,
+                                                                self.log_sigma2_omega, self.log_alpha,
+                                                                self.log_sigma2_n, self.log_variance],
+                                                               flags.get_flag('all_learning_rate'))
 
         # initialize variables
         self.init_op = tf.compat.v1.initializers.global_variables()
@@ -80,54 +94,80 @@ class ScalableLatnet:
         # current global iteration over optimization steps.
         _iter = 0
         best_elbo = None
-
-        while self.n_iterations is None or _iter < self.n_iterations:
-            self.logger.debug("\nSUBJECT %d: ITERATION %d STARTED\n" % (self.subject, _iter))
-            # optimizing variational parameters
-            if self.n_var_steps > 0:
-                self.logger.debug("optimizing variational parameters")
-                for i in range(0, self.n_var_steps):
-                    try:
+        try:
+            while self.n_iterations is None or _iter < self.n_iterations:
+                self.logger.debug("\nSUBJECT %d: ITERATION %d STARTED\n" % (self.subject, _iter))
+                # optimizing variational parameters
+                if self.n_var_steps > 0:
+                    self.logger.debug("optimizing variational parameters")
+                    for i in range(0, self.n_var_steps):
                         elbo_, kl_w_, kl_a_, kl_gamma_, kl_omega_, ell_, first_part_ell_, second_part_ell_, eig_check_, var_opt_, var_nans_ = self.sess.run(
                             [self.elbo, self.kl_w, self.kl_a, self.kl_gamma, self.kl_omega, self.ell,
                              self.first_part_ell, self.second_part_ell, self.eig_check, self.var_opt, self.var_nans])
-                        if not best_elbo or elbo_ > best_elbo:
+                        if self.return_best_state and (not best_elbo or elbo_ > best_elbo):
                             best_elbo = elbo_
+                            elbo_, sigma2_n_, mu_, sigma2_, mu_gamma_, sigma2_gamma_, mu_omega_, sigma2_omega_, alpha_, lengthscale_, variance_ = self.sess.run(
+                                (self.elbo, tf.exp(self.log_sigma2_n), self.mu, tf.exp(self.log_sigma2), self.mu_gamma,
+                                 tf.exp(self.log_sigma2_gamma), self.mu_omega, tf.exp(self.log_sigma2_omega),
+                                 tf.exp(self.log_alpha), tf.exp(self.log_lengthscale), tf.exp(self.log_variance)))
+
                         if i % self.display_step == 0:
                             self.logger.debug(
                                 '''\tlocal {i:d} iter elbo: {elbo:.0f} (KL W={kl_w:.0f}, KL A={kl_a:.0f}, KL G={kl_gamma:.0f},KL O={kl_omega:.0f}, ell={ell:.0f}, first_part_ell={first_part_ell:.0f}, second_part_ell={second_part_ell:.0f}, eig_check = {eig_check}), {var_nans:d} nan in grads. '''.format(
                                     i=i, elbo=elbo_, kl_w=kl_w_, kl_a=kl_a_, kl_gamma=kl_gamma_, kl_omega=kl_omega_,
                                     ell=ell_, first_part_ell=first_part_ell_, second_part_ell=second_part_ell_,
                                     eig_check=eig_check_, var_nans=var_nans_))
-                    except OpError as e:
-                        self.logger.error(e.message)
 
-            # optimizing hyper parameters
-            if self.n_hyp_steps > 0:
-                self.logger.debug("optimizing hyper parameters")
-                for i in range(0, self.n_hyp_steps):
-                    try:
+                # optimizing hyper parameters
+                if self.n_hyp_steps > 0:
+                    self.logger.debug("optimizing hyper parameters")
+                    for i in range(0, self.n_hyp_steps):
                         elbo_, kl_w_, kl_a_, kl_gamma_, kl_omega_, ell_, first_part_ell_, second_part_ell_, eig_check_, hyp_opt_, hyp_nans_ = self.sess.run(
                             [self.elbo, self.kl_w, self.kl_a, self.kl_gamma, self.kl_omega, self.ell,
                              self.first_part_ell, self.second_part_ell, self.eig_check, self.hyp_opt, self.hyp_nans])
-                        if not best_elbo or elbo_ > best_elbo:
+                        if self.return_best_state and (not best_elbo or elbo_ > best_elbo):
                             best_elbo = elbo_
+                            elbo_, sigma2_n_, mu_, sigma2_, mu_gamma_, sigma2_gamma_, mu_omega_, sigma2_omega_, alpha_, lengthscale_, variance_ = self.sess.run(
+                                (self.elbo, tf.exp(self.log_sigma2_n), self.mu, tf.exp(self.log_sigma2), self.mu_gamma,
+                                 tf.exp(self.log_sigma2_gamma), self.mu_omega, tf.exp(self.log_sigma2_omega),
+                                 tf.exp(self.log_alpha), tf.exp(self.log_lengthscale), tf.exp(self.log_variance)))
                         if i % self.display_step == 0:
                             self.logger.debug(
                                 '''\tlocal {i:d} iter elbo: {elbo:.0f} (KL W={kl_w:.0f}, KL A={kl_a:.0f}, KL G={kl_gamma:.0f},KL O={kl_omega:.0f},  ell={ell:.0f}, first_part_ell={first_part_ell:.0f}, second_part_ell={second_part_ell:.0f}, eig_check = {eig_check}), {hyp_nans:d} nan in grads. '''.format(
                                     i=i, elbo=elbo_, kl_w=kl_w_, kl_a=kl_a_, kl_gamma=kl_gamma_, kl_omega=kl_omega_,
                                     ell=ell_, first_part_ell=first_part_ell_, second_part_ell=second_part_ell_,
                                     eig_check=eig_check_, hyp_nans=hyp_nans_))
-                    except OpError as e:
-                        self.logger.error(e.message)
-            _iter += 1
 
-        elbo_, sigma2_n_, mu_, sigma2_, mu_gamma, sigma2_gamma_, mu_omega, sigma2_omega_, alpha_, lengthscale, variance = self.sess.run(
+                if self.n_all_steps > 0:
+                    self.logger.debug("optimizing all parameters")
+                    for i in range(0, self.n_all_steps):
+                        elbo_, kl_w_, kl_a_, kl_gamma_, kl_omega_, ell_, first_part_ell_, second_part_ell_, eig_check_, all_opt_, all_nans_ = self.sess.run(
+                            [self.elbo, self.kl_w, self.kl_a, self.kl_gamma, self.kl_omega, self.ell,
+                             self.first_part_ell, self.second_part_ell, self.eig_check, self.all_opt, self.all_nans])
+                        if self.return_best_state and (not best_elbo or elbo_ > best_elbo):
+                            best_elbo = elbo_
+                            elbo_, sigma2_n_, mu_, sigma2_, mu_gamma_, sigma2_gamma_, mu_omega_, sigma2_omega_, alpha_, lengthscale_, variance_ = self.sess.run(
+                                (self.elbo, tf.exp(self.log_sigma2_n), self.mu, tf.exp(self.log_sigma2), self.mu_gamma,
+                                 tf.exp(self.log_sigma2_gamma), self.mu_omega, tf.exp(self.log_sigma2_omega),
+                                 tf.exp(self.log_alpha), tf.exp(self.log_lengthscale), tf.exp(self.log_variance)))
+                        if i % self.display_step == 0:
+                            self.logger.debug(
+                                '''\tlocal {i:d} iter elbo: {elbo:.0f} (KL W={kl_w:.0f}, KL A={kl_a:.0f}, KL G={kl_gamma:.0f},KL O={kl_omega:.0f}, ell={ell:.0f}, first_part_ell={first_part_ell:.0f}, second_part_ell={second_part_ell:.0f}, eig_check = {eig_check}), {all_nans:d} nan in grads. '''.format(
+                                    i=i, elbo=elbo_, kl_w=kl_w_, kl_a=kl_a_, kl_gamma=kl_gamma_, kl_omega=kl_omega_,
+                                    ell=ell_, first_part_ell=first_part_ell_, second_part_ell=second_part_ell_,
+                                    eig_check=eig_check_, all_nans=all_nans_))
+                _iter += 1
+        except OpError as e:
+            self.logger.error(e.message)
+        print("BEST ELBO", best_elbo)
+
+        if not self.return_best_state:
+            elbo_, sigma2_n_, mu_, sigma2_, mu_gamma_, sigma2_gamma_, mu_omega_, sigma2_omega_, alpha_, lengthscale_, variance_ = self.sess.run(
             (self.elbo, tf.exp(self.log_sigma2_n), self.mu, tf.exp(self.log_sigma2), self.mu_gamma,
              tf.exp(self.log_sigma2_gamma), self.mu_omega, tf.exp(self.log_sigma2_omega), tf.exp(self.log_alpha),
              tf.exp(self.log_lengthscale), tf.exp(self.log_variance)))
 
-        return elbo_, sigma2_n_, mu_, sigma2_, mu_gamma, sigma2_gamma_, mu_omega, sigma2_omega_, alpha_, lengthscale, variance
+        return elbo_, sigma2_n_, mu_, sigma2_, mu_gamma_, sigma2_gamma_, mu_omega_, sigma2_omega_, alpha_, lengthscale_, variance_
 
     def get_model_settings(self, flags):
         n_mc = flags.get_flag('n_mc')
@@ -138,8 +178,10 @@ class ScalableLatnet:
         n_iterations = flags.get_flag('n_iterations')
         n_var_steps = flags.get_flag('var_steps')
         n_hyp_steps = flags.get_flag('hyp_steps')
+        n_all_steps = flags.get_flag('all_steps')
         display_step = flags.get_flag('display_step')
-        return n_mc, n_rf, learn_omega, inv_calculation, n_approx_terms, n_iterations, n_var_steps, n_hyp_steps, display_step
+        return_best_state = flags.get_flag("return_best_state")
+        return n_mc, n_rf, learn_omega, inv_calculation, n_approx_terms, n_iterations, n_var_steps, n_hyp_steps, n_all_steps,display_step, return_best_state
 
     def get_hyperparameters(self, flags):
         init_p = flags.get_flag('init_p')

@@ -12,6 +12,7 @@ class Flags():
         self.flags['Ti'] = Ti
         self.flags['s'] = s
         self.flags['seed'] = 1
+        self.flags['return_best_state'] = True
 
         # How to treat Omega - fixed (from the prior), optimized, or learned variationally [prior-fixed, var-fixed, var-resampled]
         self.flags['learn_Omega'] = 'var-fixed'
@@ -20,12 +21,14 @@ class Flags():
         self.flags['inv_calculation'] = 'solver'
         self.flags['n_approx_terms'] = 5
 
-        self.flags['n_iterations'] = 7
-        self.flags['var_steps'] = 2000
-        self.flags['hyp_steps'] = 2000
+        self.flags['n_iterations'] = 2
+        self.flags['var_steps'] = 0
+        self.flags['hyp_steps'] = 0
+        self.flags['all_steps'] = 2000
         self.flags['display_step'] = 10
         self.flags['var_learning_rate'] = 0.01
-        self.flags['hyp_learning_rate'] = 0.001
+        self.flags['all_learning_rate'] = 0.001
+        self.flags['hyp_learning_rate'] = 0.01
         self.flags['n_mc'] = 10
         self.flags['n_rff'] = 500
 
