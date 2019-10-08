@@ -13,9 +13,9 @@ class Flags():
         self.flags['s'] = s
         self.flags['seed'] = 1
 
-        # How to treat Omega - fixed (from the prior), optimized, or learned variationally [prior_fixed, var-fixed, var-resampled]
-        self.flags['learn_Omega'] = 'var-resampled'
-        self.flags['learn_lengthscale'] = 'yes'
+        # How to treat Omega - fixed (from the prior), optimized, or learned variationally [prior-fixed, var-fixed, var-resampled]
+        self.flags['learn_Omega'] = 'var-fixed'
+        self.flags['learn_lengthscale'] = 'no'
         # Way to approximate inverse of the matrix :[approx,solver,cholesky,matrix_inverse]
         self.flags['inv_calculation'] = 'solver'
         self.flags['n_approx_terms'] = 5
@@ -33,11 +33,15 @@ class Flags():
         self.flags['lambda_posterior'] = .15
         self.flags['init_sigma2_n'] = 0.31
         self.flags['init_variance'] = 0.5
-        self.flags['init_lengthscale'] = 1. / sqrt(T)
+        # self.flags['init_lengthscale'] = 1. / sqrt(T) #Change here 0.033119304807813776
+        self.flags['init_lengthscale'] = 0.033119304807813776
         self.flags['init_p'] = 0.5
 
     def get_flag(self,key):
         return self.flags.get(key)
+
+    def set_flags(self,new_flags):
+        return self.flags.update(new_flags)
 
     def del_all_flags(self):
         del self.flags
