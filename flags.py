@@ -18,13 +18,13 @@ class Flags():
         self.flags['learn_Omega'] = 'var-fixed'
         self.flags['learn_lengthscale'] = 'no'
         # Way to approximate inverse of the matrix :[approx,solver,cholesky,matrix_inverse]
-        self.flags['inv_calculation'] = 'solver'
+        self.flags['inv_calculation'] = 'approx'
         self.flags['n_approx_terms'] = 5
 
         self.flags['n_iterations'] = 2
-        self.flags['var_steps'] = 0
-        self.flags['hyp_steps'] = 0
-        self.flags['all_steps'] = 2000
+        self.flags['var_steps'] = 20
+        self.flags['hyp_steps'] = 20
+        self.flags['all_steps'] = 0
         self.flags['display_step'] = 10
         self.flags['var_learning_rate'] = 0.01
         self.flags['all_learning_rate'] = 0.001

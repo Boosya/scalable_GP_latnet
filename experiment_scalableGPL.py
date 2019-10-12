@@ -5,18 +5,29 @@ import pandas
 import time
 import argparse
 
-
-
 # export OMP_NUM_THREADS=1
 
+# TODO add tests to all the functions
+# TODO add new way to parse dataset
 
-# TODO save best state so far
-# TODO use 1000 random features
-# TODO random feature code - other implemention
+# TODO porior fixed: no KL term (posterior = prior), generrte random smples from st normal ONCE L - variables,
+#       var-fixed: sample st normal once, optimize parameters, L - variable
+#       var-resamples: same as prev but sample every iteration
+
+# TODO try running vanila the above 3
+# TODO use optimal L from latent nd fix it in tf.Variable - should really work
+# search for word "ident"
+#
+
+# TODO enable eager execution and track matrices
+# TODO add noise that is missing, small one
+# TODO try multiplying AW in the end - not working?
+# TODO try other datasets
+# TODO implement AUC check in the code and log the decreasing rate
+# TODO calculate the time complexity
+
 # TODO add noise that is missing, small one
 # TODO histigram of p matrix and compare
-# TODO refactor code
-# TODO add logging for every time used and value
 
 
 # ? when calculating KL (Omega) prior over sigma - lengthscale from posterior or from flags?
@@ -51,23 +62,31 @@ def functional_connectivity_group(config):
     logger_name = 'scalable_latnet_'+str(sims)+'_'+str(Ti)+'_'+str(s)
     output_folder = output_folder + str(Ti) + '/'
     folder_name = output_folder + 'subject' + '_' + str(s)
-    data = pandas.read_csv(DATA + input_file, header=None)
-    Y = []
-    l = int(data.values.shape[0]/N_OBJECTS)
-    Y.append([])
-    for i in range(data.shape[1]):
-        Y[0].append(data.ix[:, i].values[s*l:(s+1)*l, np.newaxis][0:Ti, :])
-    mean_ = np.hstack(Y[0]).mean()
-    std_ = np.hstack(Y[0]).std()
 
-    # for standardizing the inputs
-    for i in range(data.shape[1]):
-        Y[0][i] = (Y[0][i] - mean_) / std_
-    functional_connectivity_sim(Y[0], folder_name, s, logger_name,sims,Ti,s)
+    # parsing data for subject
+    all_subjects_data = pandas.read_csv(DATA + input_file, header=None)
+    n_sign_per_subjects = int(all_subjects_data.shape[0]/N_OBJECTS)
+    data = all_subjects_data.iloc[s * n_sign_per_subjects:s * n_sign_per_subjects + Ti, :]
+
+    # standardizing inputs
+    mean_ = data.stack().mean()
+    std_ = data.stack().std()
+    data = (data - mean_) / std_
+
+    # split test, train and validation
+    n_validation_samples = int(Ti*0.2)
+    n_test_samples = int(Ti*0.2)
+    n_training_samples = Ti - n_validation_samples - n_test_samples
+
+    train_data = data.iloc[:n_training_samples,:]
+    validation_data = data.iloc[n_training_samples:n_training_samples+n_validation_samples, :]
+    test_data = data.iloc[n_training_samples+n_validation_samples:, :]
+
+    functional_connectivity_sim(train_data, validation_data, test_data, folder_name, s, logger_name,sims,Ti,s)
     return logger_name
 
 
-def functional_connectivity_sim(Y,folder_name,subject,logger_name,sims,Ti,s):
+def functional_connectivity_sim(train_data, validation_data, test_data, folder_name,subject,logger_name,sims,Ti,s):
     start_time = time.time()
 
     path = RESULTS + folder_name
@@ -84,15 +103,14 @@ def functional_connectivity_sim(Y,folder_name,subject,logger_name,sims,Ti,s):
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
-    (T,D) = Y[0].shape
+    (T, _) = train_data.shape
     t = [np.array(range(0,T))[:,np.newaxis]]
     norm_t = (t[0] - np.mean(t[0])) / np.double(np.std(t[0]))
-    Y_data = np.hstack(Y)
 
     myflags = Flags(T,sims,Ti,s)
     logger.debug("Parameters of the model")
     myflags.log_flags(logger)
-    myLatnet = ScalableLatnet(myflags, subject, D, norm_t, Y_data,  logger)
+    myLatnet = ScalableLatnet(myflags, subject=subject, dim=1, t=norm_t, train_data=train_data,  validation_data=validation_data, test_data=test_data, logger=logger)
     elbo_, sigma2_n_,  mu, sigma2_, mu_gamma, sigma2_gamma_, mu_omega, sigma2_omega_, alpha_, lengthscale, variance = \
         myLatnet.optimize()
     end_time = time.time()

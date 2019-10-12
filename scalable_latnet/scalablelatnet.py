@@ -7,14 +7,16 @@ from tensorflow.python.framework.errors import OpError
 
 class ScalableLatnet:
 
-    def __init__(self, flags, s, d, t, y, logger, session=None):
+    def __init__(self, flags, subject, dim, t, train_data, validation_data, test_data, logger, session=None):
         self.FLOAT = tf.float64
         self.logger = logger
-        self.subject = s
-        self.d = d
-        self.n_nodes = y.shape[1]
-        self.n_signals = y.shape[0]
-        self.y = tf.constant(y, dtype=self.FLOAT)
+        self.subject = subject
+        self.dim = dim
+
+        (self.n_signals, self.n_nodes) = train_data.shape
+        self.train_data = tf.constant(train_data, dtype=self.FLOAT)
+        self.validation_data = tf.constant(validation_data, dtype=self.FLOAT)
+        self.test_data = tf.constant(test_data, dtype=self.FLOAT)
         self.t = tf.cast(t, self.FLOAT)
 
         config = tf.compat.v1.ConfigProto()
@@ -44,7 +46,7 @@ class ScalableLatnet:
         self.kl_w, self.kl_gamma, self.kl_omega, self.kl_a = self.calculate_kl_terms()
         self.eig_check, self.first_part_ell, self.second_part_ell, self.ell = self.calculate_ell(self.gamma, self.omega,
                                                                                                  self.t,
-                                                                                                 self.log_variance)
+                                                                                                 self.log_variance, self.train_data)
 
         # calculating ELBO
         self.elbo = tf.negative(self.kl_w) + tf.negative(self.kl_gamma) + tf.negative(self.kl_omega) + tf.negative(
@@ -112,6 +114,7 @@ class ScalableLatnet:
                                  tf.exp(self.log_alpha), tf.exp(self.log_lengthscale), tf.exp(self.log_variance)))
 
                         if i % self.display_step == 0:
+
                             self.logger.debug(
                                 '''\tlocal {i:d} iter elbo: {elbo:.0f} (KL W={kl_w:.0f}, KL A={kl_a:.0f}, KL G={kl_gamma:.0f},KL O={kl_omega:.0f}, ell={ell:.0f}, first_part_ell={first_part_ell:.0f}, second_part_ell={second_part_ell:.0f}, eig_check = {eig_check}), {var_nans:d} nan in grads. '''.format(
                                     i=i, elbo=elbo_, kl_w=kl_w_, kl_a=kl_a_, kl_gamma=kl_gamma_, kl_omega=kl_omega_,
@@ -198,7 +201,7 @@ class ScalableLatnet:
                                    tf.ones((self.n_nodes, self.n_nodes), dtype=self.FLOAT))
         prior_mu_gamma = tf.zeros((self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
         prior_sigma2_gamma = tf.ones((self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
-        prior_mu_omega = tf.zeros((self.n_rf, self.d), dtype=self.FLOAT)
+        prior_mu_omega = tf.zeros((self.n_rf, self.dim), dtype=self.FLOAT)
         prior_alpha = tf.multiply(tf.cast(self.init_p / (1. - self.init_p), self.FLOAT),
                                   tf.ones((self.n_nodes, self.n_nodes), dtype=self.FLOAT))
         return prior_mu, prior_sigma2, prior_mu_gamma, prior_sigma2_gamma, prior_mu_omega, prior_alpha
@@ -219,7 +222,7 @@ class ScalableLatnet:
                                       dtype=self.FLOAT)
         prior_log_sigma2_omega = -2 * log_lengthscale
         log_sigma2_omega = tf.Variable(prior_log_sigma2_omega, dtype=self.FLOAT)
-        omega_single_normal = np.random.normal(loc=0, scale=1, size=(self.n_mc, self.n_rf, self.d))
+        omega_single_normal = np.random.normal(loc=0, scale=1, size=(self.n_mc, self.n_rf, self.dim))
         omega_prior_fixed = omega_single_normal * tf.sqrt(tf.exp(prior_log_sigma2_omega))
         return log_lengthscale, prior_log_sigma2_omega, log_sigma2_omega, omega_single_normal, omega_prior_fixed
 
@@ -235,7 +238,7 @@ class ScalableLatnet:
 
         # Omega
         if self.learn_omega == 'var-resampled':
-            z_omega = tf.random.normal((self.n_mc, self.n_rf, self.d), dtype=self.FLOAT)
+            z_omega = tf.random.normal((self.n_mc, self.n_rf, self.dim), dtype=self.FLOAT)
             omega = tf.multiply(z_omega, tf.sqrt(tf.exp(self.log_sigma2_omega))) + self.mu_omega
         elif self.learn_omega == 'var-fixed':
             omega = tf.multiply(self.omega_single_normal, tf.sqrt(tf.exp(self.log_sigma2_omega))) + self.mu_omega
@@ -292,11 +295,11 @@ class ScalableLatnet:
         logdiff = tf.linalg.set_diag(logdiff, tf.zeros((tf.shape(logdiff)[0], tf.shape(logdiff)[1]), dtype=self.FLOAT))
         return tf.reduce_sum(tf.reduce_mean(logdiff, [0]))
 
-    def calculate_ell(self, gamma, omega, t, log_variance):
+    def calculate_ell(self, gamma, omega, t, log_variance, real_data):
         z = self.get_z(gamma, omega, t, log_variance)
         b, exp_y = self.get_exp_y(z)
         eig_check = self.check_eigvalues(b)
-        real_y = tf.expand_dims(tf.transpose(self.y), 0)
+        real_y = tf.expand_dims(tf.transpose(real_data), 0)
         norm = tf.norm(exp_y - real_y, ord=2, axis=1)
         norm_sum_by_t = tf.reduce_sum(norm, axis=1)
         norm_sum_by_t_avg_by_s = tf.reduce_mean(norm_sum_by_t)
@@ -308,7 +311,7 @@ class ScalableLatnet:
         return eig_check, first_part_ell, second_part_ell, ell
 
     def get_z(self, gamma, omega, t, log_variance):
-        omega_temp = tf.reshape(omega, [self.n_mc * self.n_rf, self.d])
+        omega_temp = tf.reshape(omega, [self.n_mc * self.n_rf, self.dim])
         fi_under = tf.reshape(tf.matmul(omega_temp, tf.transpose(t)), [self.n_mc, self.n_rf, self.n_signals])
         fi = tf.sqrt(tf.math.divide(tf.exp(log_variance), self.n_rf)) * tf.concat([tf.cos(fi_under), tf.sin(fi_under)],
                                                                                   axis=1)
