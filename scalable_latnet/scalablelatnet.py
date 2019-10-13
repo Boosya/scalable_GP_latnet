@@ -111,43 +111,34 @@ class ScalableLatnet:
                 # optimizing variational parameters
                 if self.n_var_steps > 0:
                     self.logger.debug("optimizing variational parameters")
-                    for i in range(0, self.n_var_steps):
-                        var_nans_ = self.run_optimization(self.var_opt, self.var_nans)
-                        if self.return_best_state and (not best_elbo or self.elbo_ > best_elbo):
-                            best_elbo = self.elbo_
-                            self.run_variables()
-                        if i % self.display_step == 0:
-                            self.log_optimization(i, var_nans_)
+                    self.run_step(self.n_var_steps, self.var_opt, self.var_nans, best_elbo)
 
                 # optimizing hyper parameters
                 if self.n_hyp_steps > 0:
                     self.logger.debug("optimizing hyper parameters")
-                    for i in range(0, self.n_hyp_steps):
-                        hyp_nans_ = self.run_optimization(self.hyp_opt, self.hyp_nans)
-                        if self.return_best_state and (not best_elbo or self.elbo_ > best_elbo):
-                            best_elbo = self.elbo_
-                            self.run_variables()
-                        if i % self.display_step == 0:
-                            self.log_optimization(i, hyp_nans_)
+                    self.run_step(self.n_hyp_steps, self.hyp_opt, self.hyp_nans, best_elbo)
 
+                # optimizing all the parameters at once
                 if self.n_all_steps > 0:
                     self.logger.debug("optimizing all parameters")
-                    for i in range(0, self.n_all_steps):
-                        all_nans_ = self.run_optimization(self.all_opt, self.all_nans)
-                        if self.return_best_state and (not best_elbo or self.elbo_ > best_elbo):
-                            best_elbo = self.elbo_
-                            self.run_variables()
-                        if i % self.display_step == 0:
-                            self.log_optimization(i, all_nans_)
+                    self.run_step(self.n_all_steps, self.all_opt, self.all_nans, best_elbo)
                 _iter += 1
         except OpError as e:
             self.logger.error(e.message)
 
         if not self.return_best_state:
             self.run_variables()
-            self.logger.debug("RESULTING ELL {:.0f}".format(self.test_ell_))
-
+            self.logger.debug("TEST ELL {:.0f}".format(self.test_ell_))
         return self.elbo_, self.sigma2_n_, self.mu_, self.sigma2_, self.mu_gamma_, self.sigma2_gamma_, self.mu_omega_, self.sigma2_omega_, self.alpha_, self.lengthscale_, self.log_variance_
+
+    def run_step(self, n_steps, opt, nans, best_elbo):
+        for i in range(0, n_steps):
+            nans_ = self.run_optimization(opt, nans)
+            if self.return_best_state and (not best_elbo or self.elbo_ > best_elbo):
+                best_elbo = self.elbo_
+                self.run_variables()
+            if i % self.display_step == 0:
+                self.log_optimization(i, nans_)
 
     def run_optimization(self, opt, nans):
         self.elbo_, self.kl_w_, self.kl_a_, self.kl_gamma_, self.kl_omega_, self.ell_, self.val_ell_, self.first_part_ell_, self.second_part_ell_, self.eig_check_, _, nans_ = self.sess.run(
