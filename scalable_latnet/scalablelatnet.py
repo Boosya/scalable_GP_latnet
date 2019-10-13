@@ -7,17 +7,15 @@ from tensorflow.python.framework.errors import OpError
 
 class ScalableLatnet:
 
-    def __init__(self, flags, subject, dim, t, train_data, validation_data, test_data, logger, session=None):
+    def __init__(self, flags, subject, dim, train_data, validation_data, test_data, logger, session=None):
         self.FLOAT = tf.float64
         self.logger = logger
         self.subject = subject
         self.dim = dim
-
         (self.n_signals, self.n_nodes) = train_data.shape
         self.train_data = tf.constant(train_data, dtype=self.FLOAT)
         self.validation_data = tf.constant(validation_data, dtype=self.FLOAT)
         self.test_data = tf.constant(test_data, dtype=self.FLOAT)
-        self.t = tf.cast(t, self.FLOAT)
 
         config = tf.compat.v1.ConfigProto()
         config.intra_op_parallelism_threads = 1
@@ -33,6 +31,7 @@ class ScalableLatnet:
 
         self.init_p, self.init_lengthscale, self.init_sigma2_n, self.init_variance, self.posterior_lambda_, self.prior_lambda_ = self.get_hyperparameters(
             flags)
+
         self.one = tf.constant(1.0, dtype=self.FLOAT)
         self.half = tf.constant(0.5, dtype=self.FLOAT)
         self.eps = tf.constant(1e-20, dtype=self.FLOAT)
@@ -42,15 +41,24 @@ class ScalableLatnet:
         self.log_lengthscale, self.prior_log_sigma2_omega, self.log_sigma2_omega, self.omega_single_normal, self.omega_prior_fixed = self.initialize_prior_and_variable_for_sigma2_omega()
 
         # sample from posterior to get kl and ell terms
-        self.w, self.gamma, self.omega, self._a, self.a = self.get_matrices()
+        self.w, self.gamma, self.omega, self._a, self.a = self.get_matrices(self.mu, self.log_sigma2, self.mu_gamma,
+                                                                            self.log_sigma2_gamma, self.mu_omega,
+                                                                            self.log_sigma2_omega)
         self.kl_w, self.kl_gamma, self.kl_omega, self.kl_a = self.calculate_kl_terms()
         self.eig_check, self.first_part_ell, self.second_part_ell, self.ell = self.calculate_ell(self.gamma, self.omega,
-                                                                                                 self.t,
-                                                                                                 self.log_variance, self.train_data)
+                                                                                                 self.log_variance,
+                                                                                                 self.log_sigma2_n,
+                                                                                                 self.train_data)
 
         # calculating ELBO
         self.elbo = tf.negative(self.kl_w) + tf.negative(self.kl_gamma) + tf.negative(self.kl_omega) + tf.negative(
             self.kl_a) + self.ell
+
+        _, _, _, self.valid_ell = self.calculate_ell(self.gamma, self.omega, self.log_variance, self.log_sigma2_n,
+                                                     self.validation_data)
+
+        _, _, _, self.test_ell = self.calculate_ell(self.gamma, self.omega, self.log_variance, self.log_sigma2_n,
+                                                    self.test_data)
 
         # get the operation for optimizing variational parameters
         self.var_opt, _, self.var_nans = self.get_opzimier(tf.negative(self.elbo),
@@ -67,7 +75,8 @@ class ScalableLatnet:
             self.all_opt, _, self.all_nans = self.get_opzimier(tf.negative(self.elbo),
                                                                [self.mu, self.log_sigma2, self.mu_gamma,
                                                                 self.log_sigma2_gamma, self.mu_omega,
-                                                                self.log_sigma2_omega, self.log_alpha, self.log_sigma2_n, self.log_variance,
+                                                                self.log_sigma2_omega, self.log_alpha,
+                                                                self.log_sigma2_n, self.log_variance,
                                                                 self.log_lengthscale],
                                                                flags.get_flag('all_learning_rate'))
         else:
@@ -103,74 +112,68 @@ class ScalableLatnet:
                 if self.n_var_steps > 0:
                     self.logger.debug("optimizing variational parameters")
                     for i in range(0, self.n_var_steps):
-                        elbo_, kl_w_, kl_a_, kl_gamma_, kl_omega_, ell_, first_part_ell_, second_part_ell_, eig_check_, var_opt_, var_nans_ = self.sess.run(
-                            [self.elbo, self.kl_w, self.kl_a, self.kl_gamma, self.kl_omega, self.ell,
-                             self.first_part_ell, self.second_part_ell, self.eig_check, self.var_opt, self.var_nans])
-                        if self.return_best_state and (not best_elbo or elbo_ > best_elbo):
-                            best_elbo = elbo_
-                            elbo_, sigma2_n_, mu_, sigma2_, mu_gamma_, sigma2_gamma_, mu_omega_, sigma2_omega_, alpha_, lengthscale_, variance_ = self.sess.run(
-                                (self.elbo, tf.exp(self.log_sigma2_n), self.mu, tf.exp(self.log_sigma2), self.mu_gamma,
-                                 tf.exp(self.log_sigma2_gamma), self.mu_omega, tf.exp(self.log_sigma2_omega),
-                                 tf.exp(self.log_alpha), tf.exp(self.log_lengthscale), tf.exp(self.log_variance)))
-
+                        var_nans_ = self.run_optimization(self.var_opt, self.var_nans)
+                        if self.return_best_state and (not best_elbo or self.elbo_ > best_elbo):
+                            best_elbo = self.elbo_
+                            self.run_variables()
                         if i % self.display_step == 0:
-
-                            self.logger.debug(
-                                '''\tlocal {i:d} iter elbo: {elbo:.0f} (KL W={kl_w:.0f}, KL A={kl_a:.0f}, KL G={kl_gamma:.0f},KL O={kl_omega:.0f}, ell={ell:.0f}, first_part_ell={first_part_ell:.0f}, second_part_ell={second_part_ell:.0f}, eig_check = {eig_check}), {var_nans:d} nan in grads. '''.format(
-                                    i=i, elbo=elbo_, kl_w=kl_w_, kl_a=kl_a_, kl_gamma=kl_gamma_, kl_omega=kl_omega_,
-                                    ell=ell_, first_part_ell=first_part_ell_, second_part_ell=second_part_ell_,
-                                    eig_check=eig_check_, var_nans=var_nans_))
+                            self.log_optimization(i, var_nans_)
 
                 # optimizing hyper parameters
                 if self.n_hyp_steps > 0:
                     self.logger.debug("optimizing hyper parameters")
                     for i in range(0, self.n_hyp_steps):
-                        elbo_, kl_w_, kl_a_, kl_gamma_, kl_omega_, ell_, first_part_ell_, second_part_ell_, eig_check_, hyp_opt_, hyp_nans_ = self.sess.run(
-                            [self.elbo, self.kl_w, self.kl_a, self.kl_gamma, self.kl_omega, self.ell,
-                             self.first_part_ell, self.second_part_ell, self.eig_check, self.hyp_opt, self.hyp_nans])
-                        if self.return_best_state and (not best_elbo or elbo_ > best_elbo):
-                            best_elbo = elbo_
-                            elbo_, sigma2_n_, mu_, sigma2_, mu_gamma_, sigma2_gamma_, mu_omega_, sigma2_omega_, alpha_, lengthscale_, variance_ = self.sess.run(
-                                (self.elbo, tf.exp(self.log_sigma2_n), self.mu, tf.exp(self.log_sigma2), self.mu_gamma,
-                                 tf.exp(self.log_sigma2_gamma), self.mu_omega, tf.exp(self.log_sigma2_omega),
-                                 tf.exp(self.log_alpha), tf.exp(self.log_lengthscale), tf.exp(self.log_variance)))
+                        hyp_nans_ = self.run_optimization(self.hyp_opt, self.hyp_nans)
+                        if self.return_best_state and (not best_elbo or self.elbo_ > best_elbo):
+                            best_elbo = self.elbo_
+                            self.run_variables()
                         if i % self.display_step == 0:
-                            self.logger.debug(
-                                '''\tlocal {i:d} iter elbo: {elbo:.0f} (KL W={kl_w:.0f}, KL A={kl_a:.0f}, KL G={kl_gamma:.0f},KL O={kl_omega:.0f},  ell={ell:.0f}, first_part_ell={first_part_ell:.0f}, second_part_ell={second_part_ell:.0f}, eig_check = {eig_check}), {hyp_nans:d} nan in grads. '''.format(
-                                    i=i, elbo=elbo_, kl_w=kl_w_, kl_a=kl_a_, kl_gamma=kl_gamma_, kl_omega=kl_omega_,
-                                    ell=ell_, first_part_ell=first_part_ell_, second_part_ell=second_part_ell_,
-                                    eig_check=eig_check_, hyp_nans=hyp_nans_))
+                            self.log_optimization(i, hyp_nans_)
 
                 if self.n_all_steps > 0:
                     self.logger.debug("optimizing all parameters")
                     for i in range(0, self.n_all_steps):
-                        elbo_, kl_w_, kl_a_, kl_gamma_, kl_omega_, ell_, first_part_ell_, second_part_ell_, eig_check_, all_opt_, all_nans_ = self.sess.run(
-                            [self.elbo, self.kl_w, self.kl_a, self.kl_gamma, self.kl_omega, self.ell,
-                             self.first_part_ell, self.second_part_ell, self.eig_check, self.all_opt, self.all_nans])
-                        if self.return_best_state and (not best_elbo or elbo_ > best_elbo):
-                            best_elbo = elbo_
-                            elbo_, sigma2_n_, mu_, sigma2_, mu_gamma_, sigma2_gamma_, mu_omega_, sigma2_omega_, alpha_, lengthscale_, variance_ = self.sess.run(
-                                (self.elbo, tf.exp(self.log_sigma2_n), self.mu, tf.exp(self.log_sigma2), self.mu_gamma,
-                                 tf.exp(self.log_sigma2_gamma), self.mu_omega, tf.exp(self.log_sigma2_omega),
-                                 tf.exp(self.log_alpha), tf.exp(self.log_lengthscale), tf.exp(self.log_variance)))
+                        all_nans_ = self.run_optimization(self.all_opt, self.all_nans)
+                        if self.return_best_state and (not best_elbo or self.elbo_ > best_elbo):
+                            best_elbo = self.elbo_
+                            self.run_variables()
                         if i % self.display_step == 0:
-                            self.logger.debug(
-                                '''\tlocal {i:d} iter elbo: {elbo:.0f} (KL W={kl_w:.0f}, KL A={kl_a:.0f}, KL G={kl_gamma:.0f},KL O={kl_omega:.0f}, ell={ell:.0f}, first_part_ell={first_part_ell:.0f}, second_part_ell={second_part_ell:.0f}, eig_check = {eig_check}), {all_nans:d} nan in grads. '''.format(
-                                    i=i, elbo=elbo_, kl_w=kl_w_, kl_a=kl_a_, kl_gamma=kl_gamma_, kl_omega=kl_omega_,
-                                    ell=ell_, first_part_ell=first_part_ell_, second_part_ell=second_part_ell_,
-                                    eig_check=eig_check_, all_nans=all_nans_))
+                            self.log_optimization(i, all_nans_)
                 _iter += 1
         except OpError as e:
             self.logger.error(e.message)
-        print("BEST ELBO", best_elbo)
 
         if not self.return_best_state:
-            elbo_, sigma2_n_, mu_, sigma2_, mu_gamma_, sigma2_gamma_, mu_omega_, sigma2_omega_, alpha_, lengthscale_, variance_ = self.sess.run(
-            (self.elbo, tf.exp(self.log_sigma2_n), self.mu, tf.exp(self.log_sigma2), self.mu_gamma,
+            self.run_variables()
+            self.logger.debug("RESULTING ELL {:.0f}".format(self.test_ell_))
+
+        return self.elbo_, self.sigma2_n_, self.mu_, self.sigma2_, self.mu_gamma_, self.sigma2_gamma_, self.mu_omega_, self.sigma2_omega_, self.alpha_, self.lengthscale_, self.log_variance_
+
+    def run_optimization(self, opt, nans):
+        self.elbo_, self.kl_w_, self.kl_a_, self.kl_gamma_, self.kl_omega_, self.ell_, self.val_ell_, self.first_part_ell_, self.second_part_ell_, self.eig_check_, _, nans_ = self.sess.run(
+            [self.elbo, self.kl_w, self.kl_a, self.kl_gamma, self.kl_omega, self.ell, self.valid_ell,
+             self.first_part_ell, self.second_part_ell, self.eig_check, opt, nans])
+        return nans_
+
+    def run_variables(self):
+        self.elbo_, self.test_ell_, self.sigma2_n_, self.mu_, self.sigma2_, self.mu_gamma_, self.sigma2_gamma_, self.mu_omega_, self.sigma2_omega_, self.alpha_, self.lengthscale_, self.log_variance_ = self.sess.run(
+            (self.elbo, self.test_ell, tf.exp(self.log_sigma2_n), self.mu, tf.exp(self.log_sigma2), self.mu_gamma,
              tf.exp(self.log_sigma2_gamma), self.mu_omega, tf.exp(self.log_sigma2_omega), tf.exp(self.log_alpha),
              tf.exp(self.log_lengthscale), tf.exp(self.log_variance)))
 
-        return elbo_, sigma2_n_, mu_, sigma2_, mu_gamma_, sigma2_gamma_, mu_omega_, sigma2_omega_, alpha_, lengthscale_, variance_
+    def log_optimization(self, i, nans_):
+        self.logger.debug(" local {i:d} iter: "
+                          "validation_ell: {ell_:.0f}, elbo: {elbo:.0f}"
+                          "(KL W={kl_w:.2f}, KL A={kl_a:.2f}, "
+                          "KL G={kl_gamma:.2f},KL O={kl_omega:.2f}, ell={ell:.0f}, "
+                          "outer_ell={first_part_ell:.0f}, network_ell={second_part_ell:.0f},"
+                          "eig_check = {eig_check}), "
+                          "{nans:d} nan in grads.".format(ell_=self.val_ell_, i=i, elbo=self.elbo_, kl_w=self.kl_w_,
+                                                          kl_a=self.kl_a_, kl_gamma=self.kl_gamma_,
+                                                          kl_omega=self.kl_omega_, ell=self.ell_,
+                                                          first_part_ell=self.first_part_ell_,
+                                                          second_part_ell=self.second_part_ell_,
+                                                          eig_check=self.eig_check_, nans=nans_))
 
     def get_model_settings(self, flags):
         n_mc = flags.get_flag('n_mc')
@@ -184,7 +187,7 @@ class ScalableLatnet:
         n_all_steps = flags.get_flag('all_steps')
         display_step = flags.get_flag('display_step')
         return_best_state = flags.get_flag("return_best_state")
-        return n_mc, n_rf, learn_omega, inv_calculation, n_approx_terms, n_iterations, n_var_steps, n_hyp_steps, n_all_steps,display_step, return_best_state
+        return n_mc, n_rf, learn_omega, inv_calculation, n_approx_terms, n_iterations, n_var_steps, n_hyp_steps, n_all_steps, display_step, return_best_state
 
     def get_hyperparameters(self, flags):
         init_p = flags.get_flag('init_p')
@@ -226,22 +229,22 @@ class ScalableLatnet:
         omega_prior_fixed = omega_single_normal * tf.sqrt(tf.exp(prior_log_sigma2_omega))
         return log_lengthscale, prior_log_sigma2_omega, log_sigma2_omega, omega_single_normal, omega_prior_fixed
 
-    def get_matrices(self):
+    def get_matrices(self, mu, log_sigma2, mu_gamma, log_sigma2_gamma, mu_omega, log_sigma2_omega):
         # sampling for W
         z_w = tf.random.normal((self.n_mc, self.n_nodes, self.n_nodes), dtype=self.FLOAT)
-        w = tf.multiply(z_w, tf.sqrt(tf.exp(self.log_sigma2))) + self.mu
+        w = tf.multiply(z_w, tf.sqrt(tf.exp(log_sigma2))) + mu
         w = tf.linalg.set_diag(w, tf.zeros((self.n_mc, self.n_nodes), dtype=self.FLOAT))
 
         # Gamma
         z_gamma = tf.random.normal((self.n_mc, self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
-        gamma = tf.multiply(z_gamma, tf.sqrt(tf.exp(self.log_sigma2_gamma))) + self.mu_gamma
+        gamma = tf.multiply(z_gamma, tf.sqrt(tf.exp(log_sigma2_gamma))) + mu_gamma
 
         # Omega
         if self.learn_omega == 'var-resampled':
             z_omega = tf.random.normal((self.n_mc, self.n_rf, self.dim), dtype=self.FLOAT)
-            omega = tf.multiply(z_omega, tf.sqrt(tf.exp(self.log_sigma2_omega))) + self.mu_omega
+            omega = tf.multiply(z_omega, tf.sqrt(tf.exp(log_sigma2_omega))) + mu_omega
         elif self.learn_omega == 'var-fixed':
-            omega = tf.multiply(self.omega_single_normal, tf.sqrt(tf.exp(self.log_sigma2_omega))) + self.mu_omega
+            omega = tf.multiply(self.omega_single_normal, tf.sqrt(tf.exp(log_sigma2_omega))) + mu_omega
         elif self.learn_omega == 'prior-fixed':
             omega = self.omega_prior_fixed
         else:
@@ -295,29 +298,35 @@ class ScalableLatnet:
         logdiff = tf.linalg.set_diag(logdiff, tf.zeros((tf.shape(logdiff)[0], tf.shape(logdiff)[1]), dtype=self.FLOAT))
         return tf.reduce_sum(tf.reduce_mean(logdiff, [0]))
 
-    def calculate_ell(self, gamma, omega, t, log_variance, real_data):
-        z = self.get_z(gamma, omega, t, log_variance)
-        b, exp_y = self.get_exp_y(z)
+    def calculate_ell(self, gamma, omega, log_variance, log_sigma2_n, real_data):
+        n_signals = real_data.shape[0]
+        t = tf.cast(tf.expand_dims(tf.range(n_signals), 1), self.FLOAT)
+        mean = tf.math.reduce_mean(t)
+        std = tf.math.reduce_std(t)
+        t = (t - mean) / std
+        z = self.get_z(n_signals, gamma, omega, t, log_variance)
+        b, exp_y = self.get_exp_y(z, n_signals)
         eig_check = self.check_eigvalues(b)
         real_y = tf.expand_dims(tf.transpose(real_data), 0)
         norm = tf.norm(exp_y - real_y, ord=2, axis=1)
         norm_sum_by_t = tf.reduce_sum(norm, axis=1)
         norm_sum_by_t_avg_by_s = tf.reduce_mean(norm_sum_by_t)
         _two_pi = tf.constant(6.28, dtype=self.FLOAT)
-        first_part_ell = - self.half * self.n_nodes * self.n_signals * tf.math.log(
-            tf.multiply(_two_pi, tf.exp(self.log_sigma2_n)))
-        second_part_ell = - self.half * tf.divide(norm_sum_by_t_avg_by_s, tf.exp(self.log_sigma2_n))
+        first_part_ell = - self.half * self.n_nodes * tf.cast(n_signals, dtype=self.FLOAT) * tf.math.log(
+            tf.multiply(_two_pi, tf.exp(log_sigma2_n)))
+
+        second_part_ell = - self.half * tf.divide(norm_sum_by_t_avg_by_s, tf.exp(log_sigma2_n))
         ell = first_part_ell + second_part_ell
         return eig_check, first_part_ell, second_part_ell, ell
 
-    def get_z(self, gamma, omega, t, log_variance):
+    def get_z(self, n_signals, gamma, omega, t, log_variance):
         omega_temp = tf.reshape(omega, [self.n_mc * self.n_rf, self.dim])
-        fi_under = tf.reshape(tf.matmul(omega_temp, tf.transpose(t)), [self.n_mc, self.n_rf, self.n_signals])
+        fi_under = tf.reshape(tf.matmul(omega_temp, tf.transpose(t)), [self.n_mc, self.n_rf, n_signals])
         fi = tf.sqrt(tf.math.divide(tf.exp(log_variance), self.n_rf)) * tf.concat([tf.cos(fi_under), tf.sin(fi_under)],
                                                                                   axis=1)
         return tf.matmul(gamma, fi)
 
-    def get_exp_y(self, z):
+    def get_exp_y(self, z, n_signals):
         identity = tf.constant(np.identity(self.n_nodes), dtype=self.FLOAT)
         b = tf.multiply(self.a, self.w)
         # add_noise = False
@@ -327,7 +336,7 @@ class ScalableLatnet:
         #     Z = tf.add(Z,tf.matmul(B,noise))
         identity_minus_b = tf.subtract(identity, b)
         if self.inv_calculation == 'approx':
-            v_current = tf.reshape(z, [self.n_mc, self.n_nodes, self.n_signals])
+            v_current = tf.reshape(z, [self.n_mc, self.n_nodes, n_signals])
             exp_y = v_current
             for i in range(self.n_approx_terms):
                 v_current = tf.matmul(b, v_current)

@@ -103,14 +103,10 @@ def functional_connectivity_sim(train_data, validation_data, test_data, folder_n
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
-    (T, _) = train_data.shape
-    t = [np.array(range(0,T))[:,np.newaxis]]
-    norm_t = (t[0] - np.mean(t[0])) / np.double(np.std(t[0]))
-
-    myflags = Flags(T,sims,Ti,s)
+    myflags = Flags(sims,Ti,s)
     logger.debug("Parameters of the model")
     myflags.log_flags(logger)
-    myLatnet = ScalableLatnet(myflags, subject=subject, dim=1, t=norm_t, train_data=train_data,  validation_data=validation_data, test_data=test_data, logger=logger)
+    myLatnet = ScalableLatnet(myflags, subject=subject, dim=1, train_data=train_data,  validation_data=validation_data, test_data=test_data, logger=logger)
     elbo_, sigma2_n_,  mu, sigma2_, mu_gamma, sigma2_gamma_, mu_omega, sigma2_omega_, alpha_, lengthscale, variance = \
         myLatnet.optimize()
     end_time = time.time()

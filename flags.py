@@ -6,13 +6,13 @@ from numpy import sqrt
 #   --outfile scalable_GP_latnet/scalable_latnet/scalablelatnet_v2.py
 
 class Flags():
-    def __init__(self,T,sims,Ti,s):
+    def __init__(self,sims,Ti,s):
         self.flags = {}
         self.flags['sim'] = sims
         self.flags['Ti'] = Ti
         self.flags['s'] = s
         self.flags['seed'] = 1
-        self.flags['return_best_state'] = True
+        self.flags['return_best_state'] = False
 
         # How to treat Omega - fixed (from the prior), optimized, or learned variationally [prior-fixed, var-fixed, var-resampled]
         self.flags['learn_Omega'] = 'var-fixed'
@@ -22,8 +22,8 @@ class Flags():
         self.flags['n_approx_terms'] = 5
 
         self.flags['n_iterations'] = 2
-        self.flags['var_steps'] = 20
-        self.flags['hyp_steps'] = 20
+        self.flags['var_steps'] = 100
+        self.flags['hyp_steps'] = 100
         self.flags['all_steps'] = 0
         self.flags['display_step'] = 10
         self.flags['var_learning_rate'] = 0.01
@@ -36,7 +36,7 @@ class Flags():
         self.flags['lambda_posterior'] = .15
         self.flags['init_sigma2_n'] = 0.31
         self.flags['init_variance'] = 0.5
-        # self.flags['init_lengthscale'] = 1. / sqrt(T) #Change here 0.033119304807813776
+        # self.flags['init_lengthscale'] = 1. / sqrt(Ti) #Change here 0.033119304807813776
         self.flags['init_lengthscale'] = 0.033119304807813776
         self.flags['init_p'] = 0.5
 
