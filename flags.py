@@ -6,49 +6,31 @@ from numpy import sqrt
 #   --outfile scalable_GP_latnet/scalable_latnet/scalablelatnet_v2.py
 
 class Flags():
-    def __init__(self,sims,Ti,s):
-        self.flags = {}
-        self.flags['sim'] = sims
-        self.flags['Ti'] = Ti
-        self.flags['s'] = s
-        self.flags['seed'] = 1
-        self.flags['return_best_state'] = False
+    def __init__(self, sims, Ti, s):
+        self.flags = {'sim': sims, 'Ti': Ti, 's': s, 'seed': 1,'validation_percent':0.2, 'test_percent':0.2,
+                      'return_best_state': False, 'learn_Omega': 'var-fixed', 'learn_lengthscale': 'no',
+                      'inv_calculation': 'solver', 'n_approx_terms': 5,
+                      'n_iterations': 1, 'var_steps': 20, 'hyp_steps': 20, 'all_steps': 0, 'display_step': 10,
+                      'var_learning_rate': 0.01, 'all_learning_rate': 0.001, 'hyp_learning_rate': 0.001, 'n_mc': 10,
+                      'n_rff': 500, 'lambda_prior': 1., 'lambda_posterior': .15, 'init_sigma2_n': 0.31,
+                      'init_variance': 0.5, 'init_lengthscale': 1. / sqrt(Ti), 'init_p': 0.5, 'print_auc': False}
 
-        # How to treat Omega - fixed (from the prior), optimized, or learned variationally [prior-fixed, var-fixed, var-resampled]
-        self.flags['learn_Omega'] = 'var-fixed'
-        self.flags['learn_lengthscale'] = 'no'
-        # Way to approximate inverse of the matrix :[approx,solver,cholesky,matrix_inverse]
-        self.flags['inv_calculation'] = 'approx'
-        self.flags['n_approx_terms'] = 5
+        # learn_Omega - How to treat Omega - fixed (from the prior), optimized, or learned variationally
+        #               [prior-fixed, var-fixed, var-resampled]
 
-        self.flags['n_iterations'] = 2
-        self.flags['var_steps'] = 100
-        self.flags['hyp_steps'] = 100
-        self.flags['all_steps'] = 0
-        self.flags['display_step'] = 10
-        self.flags['var_learning_rate'] = 0.01
-        self.flags['all_learning_rate'] = 0.001
-        self.flags['hyp_learning_rate'] = 0.01
-        self.flags['n_mc'] = 10
-        self.flags['n_rff'] = 500
+        # inv_calculation -  Way to approximate inverse of the matrix :[approx,solver,cholesky,  # matrix_inverse]
 
-        self.flags['lambda_prior'] = 1.
-        self.flags['lambda_posterior'] = .15
-        self.flags['init_sigma2_n'] = 0.31
-        self.flags['init_variance'] = 0.5
         # self.flags['init_lengthscale'] = 1. / sqrt(Ti) #Change here 0.033119304807813776
-        self.flags['init_lengthscale'] = 0.033119304807813776
-        self.flags['init_p'] = 0.5
 
-    def get_flag(self,key):
+    def get_flag(self, key):
         return self.flags.get(key)
 
-    def set_flags(self,new_flags):
+    def set_flags(self, new_flags):
         return self.flags.update(new_flags)
 
     def del_all_flags(self):
         del self.flags
 
-    def log_flags(self,logger):
+    def log_flags(self, logger):
         for flag in self.flags:
-            logger.debug("\t {}: {}".format(flag,self.flags.get(flag)))
+            logger.debug("\t {}: {}".format(flag, self.flags.get(flag)))
