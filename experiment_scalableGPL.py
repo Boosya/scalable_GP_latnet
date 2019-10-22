@@ -6,15 +6,18 @@ import argparse
 
 # TODO try other datasets (employment...) - sydney
 # TODO change p to calculate A, W
+# TODO fix calculations of AUC to be faster
 # TODO add tests to all the functions
 # TODO comment all
-# TODO implement early stop based on validation
 # TODO double-check lengthscale and omega:
 #       prior fixed: no KL term (posterior = prior), generrte random smples from st normal ONCE L - variables,
 #       var-fixed: sample st normal once, optimize parameters, L - variable
 #       var-resamples: same as prev but sample every iteration
 # TODO add noise that is missing, small one
 # TODO calculate the time complexity
+
+
+# TODO ask what is X in random feature? why never use signals from other nodes? why use complete I-B if diagonal is removed?
 
 from scalable_latnet.scalablelatnet import ScalableLatnet
 from scalable_latnet.expr_util import ExprUtil

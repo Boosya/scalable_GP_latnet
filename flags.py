@@ -8,9 +8,9 @@ from numpy import sqrt
 class Flags():
     def __init__(self, sims, Ti, s):
         self.flags = {'sim': sims, 'Ti': Ti, 's': s, 'seed': 1,'validation_percent':0.2, 'test_percent':0.2,
-                      'return_best_state': False, 'learn_Omega': 'var-fixed', 'learn_lengthscale': 'no',
+                      'return_best_state': False, 'learn_Omega': 'var-fixed', 'learn_lengthscale': 'yes',
                       'inv_calculation': 'solver', 'n_approx_terms': 5,
-                      'n_iterations': 1, 'var_steps': 20, 'hyp_steps': 20, 'all_steps': 0, 'display_step': 10,
+                      'n_iterations': 7, 'var_steps': 2000, 'hyp_steps': 2000, 'all_steps': 0, 'display_step': 10,
                       'var_learning_rate': 0.01, 'all_learning_rate': 0.001, 'hyp_learning_rate': 0.001, 'n_mc': 10,
                       'n_rff': 500, 'lambda_prior': 1., 'lambda_posterior': .15, 'init_sigma2_n': 0.31,
                       'init_variance': 0.5, 'init_lengthscale': 1. / sqrt(Ti), 'init_p': 0.5, 'print_auc': False}
@@ -18,7 +18,7 @@ class Flags():
         # learn_Omega - How to treat Omega - fixed (from the prior), optimized, or learned variationally
         #               [prior-fixed, var-fixed, var-resampled]
 
-        # inv_calculation -  Way to approximate inverse of the matrix :[approx,solver,cholesky,  # matrix_inverse]
+        # inv_calculation -  Way to approximate inverse of the matrix : [approx, solver, cholesky, matrix_inverse]
 
         # self.flags['init_lengthscale'] = 1. / sqrt(Ti) #Change here 0.033119304807813776
 
