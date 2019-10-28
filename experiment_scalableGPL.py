@@ -63,10 +63,10 @@ def functional_connectivity_group(config):
     n_nodes = int(all_subjects_data.shape[1])
     data = all_subjects_data.iloc[s * n_sign_per_subjects:s * n_sign_per_subjects + Ti, :]
 
-    # parsing network to use for testing and validatopn
+    # parsing network to use for testing and validation
     all_network_file = 'fmri_sim/net_' + sims + '.csv'
     all_network_data = pandas.read_csv(DATA + all_network_file, header=None)
-    subject_true_connections_array = all_network_data.iloc[s, :100]
+    subject_true_connections_array = all_network_data.iloc[s, :n_nodes*n_nodes]
     subject_true_connections = subject_true_connections_array.as_matrix()
 
     # standardizing inputs

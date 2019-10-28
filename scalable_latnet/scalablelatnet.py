@@ -5,6 +5,7 @@ import tensorflow as tf
 from tensorflow.python.framework.errors import OpError
 from sklearn.metrics import roc_auc_score
 
+
 class ScalableLatnet:
 
     def __init__(self, flags, subject, dim, train_data, validation_data, test_data, true_conn, logger, session=None):
@@ -27,8 +28,8 @@ class ScalableLatnet:
         tf.compat.v1.set_random_seed(flags.get_flag('seed'))
         np.random.seed(flags.get_flag('seed'))
 
-        self.n_mc, self.n_rf, self.learn_omega, self.inv_calculation, self.n_approx_terms, self.n_iterations, self.n_var_steps, self.n_hyp_steps, self.n_all_steps, self.display_step, self.return_best_state, self.print_auc = self.get_model_settings(
-            flags)
+        self.n_mc, self.n_rf, self.learn_omega, self.inv_calculation, self.n_approx_terms, self.n_iterations, self.n_var_steps, self.n_hyp_steps, self.n_all_steps, self.display_step, self.return_best_state, self.print_auc \
+            = self.get_model_settings(flags)
         if not self.print_auc:
             self.auc_ = 0
 
@@ -48,8 +49,12 @@ class ScalableLatnet:
                                                                             self.log_sigma2_gamma, self.mu_omega,
                                                                             self.log_sigma2_omega)
         self.kl_w, self.kl_gamma, self.kl_omega, self.kl_a = self.calculate_kl_terms()
-        self.eig_check, self.first_part_ell, self.second_part_ell, self.ell, _, _ = self.calculate_ell(self.gamma,
-            self.omega, self.log_variance, self.log_sigma2_n, self.train_data)
+        self.eig_check, self.first_part_ell, self.second_part_ell, self.ell, \
+            self.pred_signals_normalized, self.real_signals_normalilzed = self.calculate_ell(self.gamma,
+                                                                                                       self.omega,
+                                                                                                       self.log_variance,
+                                                                                                       self.log_sigma2_n,
+                                                                                                       self.train_data)
 
         # calculating ELBO
         self.elbo = tf.negative(self.kl_w) + tf.negative(self.kl_gamma) + tf.negative(self.kl_omega) + tf.negative(
@@ -57,9 +62,8 @@ class ScalableLatnet:
 
         _, _, _, self.valid_ell, _, _ = self.calculate_ell(self.gamma, self.omega, self.log_variance, self.log_sigma2_n,
                                                            self.validation_data)
-
-        _, _, _, self.test_ell, self.pred_signals_normalized, self.real_signals_normalilzed = self.calculate_ell(
-            self.gamma, self.omega, self.log_variance, self.log_sigma2_n, self.test_data)
+        _, _, _, self.test_ell, _, _ = self.calculate_ell(
+                self.gamma, self.omega, self.log_variance, self.log_sigma2_n, self.test_data)
 
         # get the operation for optimizing variational parameters
         self.var_opt, _, self.var_nans = self.get_opzimier(tf.negative(self.elbo),
@@ -148,9 +152,10 @@ class ScalableLatnet:
 
     def run_optimization(self, opt, nans):
         if self.print_auc:
-            self.elbo_, self.kl_w_, self.kl_a_, self.kl_gamma_, self.kl_omega_, self.ell_, self.val_ell_, self.first_part_ell_, self.second_part_ell_, self.eig_check_, _, nans_, self.true_conn_,  self.alpha_ = self.sess.run(
+            self.elbo_, self.kl_w_, self.kl_a_, self.kl_gamma_, self.kl_omega_, self.ell_, self.val_ell_, self.first_part_ell_, self.second_part_ell_, self.eig_check_, _, nans_, self.true_conn_, self.alpha_ = self.sess.run(
                 [self.elbo, self.kl_w, self.kl_a, self.kl_gamma, self.kl_omega, self.ell, self.valid_ell,
-                 self.first_part_ell, self.second_part_ell, self.eig_check, opt, nans, self.true_conn, tf.exp(self.log_alpha)])
+                 self.first_part_ell, self.second_part_ell, self.eig_check, opt, nans, self.true_conn,
+                 tf.exp(self.log_alpha)])
             self.real_conn_ = self.get_bool_array_of_upper_and_lower_triangular(self.true_conn_)
             self.p_ = self.alpha_ / (1.0 + self.alpha_)
             self.pred_conn_ = self.get_array_of_upper_and_lower_triangular(self.p_)
@@ -170,16 +175,14 @@ class ScalableLatnet:
              self.real_signals_normalilzed))
 
     def log_optimization(self, i, nans_):
-
-
         self.logger.debug(" local {i:d} iter: "
                           "valid_ell: {ell_:.0f}, auc: {auc_:.2f} elbo: {elbo:.0f} "
                           "(KL W={kl_w:.2f}, KL A={kl_a:.2f}, "
                           "KL G={kl_gamma:.2f},KL O={kl_omega:.2f}, ell={ell:.0f}, "
                           "outer_ell={first_part_ell:.0f}, netw_ell={second_part_ell:.0f},"
                           "eig_check = {eig_check}), "
-                          "{nans:d} nan in grads".format(ell_=self.val_ell_, auc_=self.auc_, i=i, elbo=self.elbo_, kl_w=self.kl_w_,
-                                                         kl_a=self.kl_a_, kl_gamma=self.kl_gamma_,
+                          "{nans:d} nan in grads".format(ell_=self.val_ell_, auc_=self.auc_, i=i, elbo=self.elbo_,
+                                                         kl_w=self.kl_w_, kl_a=self.kl_a_, kl_gamma=self.kl_gamma_,
                                                          kl_omega=self.kl_omega_, ell=self.ell_,
                                                          first_part_ell=self.first_part_ell_,
                                                          second_part_ell=self.second_part_ell_,
@@ -329,10 +332,7 @@ class ScalableLatnet:
 
         second_part_ell = - self.half * tf.divide(norm_sum_by_t_avg_by_s, tf.exp(log_sigma2_n))
         ell = first_part_ell + second_part_ell
-        return eig_check, first_part_ell, second_part_ell, ell, self.normalize(tf.reduce_mean(exp_y, axis=0), n_signals,
-                                                                               n_nodes), self.normalize(real_data,
-                                                                                                        n_signals,
-                                                                                                        n_nodes)
+        return eig_check, first_part_ell, second_part_ell, ell, tf.reduce_mean(exp_y, axis=0), real_data
 
     def get_z(self, n_signals, gamma, omega, t, log_variance):
         omega_temp = tf.reshape(omega, [self.n_mc * self.n_rf, self.dim])
@@ -426,7 +426,7 @@ class ScalableLatnet:
     def get_array_of_upper_and_lower_triangular(self, array):
         tri_upper_no_diag = np.triu(array, k=1)
         tri_lower_no_diag = np.tril(array, k=-1)
-        final_matrix = tri_upper_no_diag+tri_lower_no_diag
+        final_matrix = tri_upper_no_diag + tri_lower_no_diag
         final_matrix_without_diag = final_matrix[~np.eye(final_matrix.shape[0], dtype=bool)].reshape(
             final_matrix.shape[0], -1)
         result = []
