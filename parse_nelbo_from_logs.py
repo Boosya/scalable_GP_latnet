@@ -9,13 +9,13 @@ auc_pattern = re.compile('auc: (0\.\d\d) ')
 methods = ['latnet','scalableGPL']
 
 for method in methods:
-	for sims in ['sim1','sim2','sim3']:
+	for sims in ['sim2']:
 		"""sims: which simulation in the dataset """
-		for Ti in [50, 100, 200]:
+		for Ti in [100]:
 			"""Ti: number of observations"""
 			result_output_folder = RESULTS + 'fmri/' + 'fmri_' + sims + '_' + method + '/' + str(Ti)
-			for s in range(50):
-				output_filename = 'nelbos/fmri_' + sims + '_' + method + '_' + str(Ti) + '_' + str(s)+ '.csv'
+			for s in range(1):
+				output_filename = 'graphs/fmri_' + sims + '_' + method + '_' + str(Ti) + '_' + str(s)+ '.csv'
 				with open(output_filename, 'w', newline='') as output_file:
 					nelbos = []
 					aucs = []
@@ -28,7 +28,7 @@ for method in methods:
 							nelbos.append(nelbo)
 						auc_match = auc_pattern.search(line)
 						if auc_match:
-							auc = int(auc_match.group(1))
+							auc = float(auc_match.group(1))
 							aucs.append(auc)
 					writer.writerow(nelbos)
 					writer.writerow(aucs)

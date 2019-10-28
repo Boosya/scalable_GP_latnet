@@ -4,13 +4,24 @@ import pandas
 import time
 import argparse
 
-# TODO try other datasets (employment...) - sydney
+
+# TODO run all the fmri for all the sets on unsw node (fix latent lengschale for every subject)
+# TODO try other datasets (employment...) - sydney - do Sydney
+# TODO plot several nodes, subjects for predicted  (not normalize predicted)
+# TODO use 200 mcmc
+
+# TODO report predicted  - real average
+# TODO tests and check
+
+# spikens lab priors - papper appendix - z
+# gas035
+
 # TODO change p to calculate A, W
 # TODO fix calculations of AUC to be faster
 # TODO add tests to all the functions
 # TODO comment all
 # TODO double-check lengthscale and omega:
-#       prior fixed: no KL term (posterior = prior), generrte random smples from st normal ONCE L - variables,
+#       prior fixed: no KL term (posterior = prior), generate random samples from st normal ONCE L - variables,
 #       var-fixed: sample st normal once, optimize parameters, L - variable
 #       var-resamples: same as prev but sample every iteration
 # TODO add noise that is missing, small one

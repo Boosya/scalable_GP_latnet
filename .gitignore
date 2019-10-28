@@ -1,7 +1,9 @@
 results/
 nelbos/
-*.DS_Store*
+graphs/
 venv/
 .vscode/
 *.pyc
 *__pycache__*
+.idea/
+data/R/.Rhistory
