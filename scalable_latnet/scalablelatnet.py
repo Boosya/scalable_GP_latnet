@@ -98,7 +98,7 @@ class ScalableLatnet:
         if session:
             self.sess = session
         else:
-            self.sess = tf.compat.v1.Session()
+            self.sess = tf.compat.v1.Session(config=self.config)
 
         self.sess.run(self.init_op)
 

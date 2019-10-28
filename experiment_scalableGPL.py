@@ -28,8 +28,6 @@ import argparse
 # TODO calculate the time complexity
 
 
-# TODO ask what is X in random feature? why never use signals from other nodes? why use complete I-B if diagonal is removed?
-
 from scalable_latnet.scalablelatnet import ScalableLatnet
 from scalable_latnet.expr_util import ExprUtil
 import logging
@@ -127,10 +125,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Specify the data to process.')
     parser.add_argument('--sim', help='which sim to use')
     parser.add_argument('--Ti', help='number of observations per node')
-    parser.add_argument('--s', help='which oject')
+    parser.add_argument('--s', help='which object to start with')
+    parser.add_argument('--n', help='number of subjects to run in a row')
     args = parser.parse_args()
 
     methods = ["scalableGPL"]
-    config = {'sims': args.sim, 'Ti': args.Ti, 's': args.s, 'output_folder': 'fmri/fmri_' + args.sim + '_scalableGPL/',
+    for i in range(int(args.s),int(args.s)+int(args.n)):
+        config = {'sims': args.sim, 'Ti': args.Ti, 's': i, 'output_folder': 'fmri/fmri_' + args.sim + '_scalableGPL/',
               'input_file': 'fmri_sim/ts_' + args.sim + '.csv'}
-    functional_connectivity_group(config)
+        functional_connectivity_group(config)
