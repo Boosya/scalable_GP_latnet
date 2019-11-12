@@ -8,6 +8,18 @@ import tensorflow as tf
 
 
 def get_model_settings(flags):
+    '''
+     Parses model settings such as
+     n_mc - number of samples for Monte Carlo sampling
+     n_rf - number of random features for GP random feature expansion
+     n_iterations - number of global iterations, 
+        each of iteration consisting of variational learning steps  and hyperparameter learning steps
+    n_var_steps - number of training steps during variational learning
+    n_hyp_steps - number of training steps during hyperparameter learning
+    display_step - log elbo and its components every display_step steps
+    lr - learning rate for variational learning
+    hlr - hyperparameter learning rate
+    '''
     n_mc = flags.get_flag('n_mc')
     n_rf = flags.get_flag('n_rff')
     n_iterations = flags.get_flag('n_iterations')
@@ -52,6 +64,69 @@ def get_kl_normal(posterior_mu, posterior_sigma2, prior_mu, prior_sigma2, dtype)
     kl = tf.linalg.set_diag(tf.expand_dims(kl, -3), tf.zeros((1, tf.shape(kl)[0]), dtype=dtype))
     return tf.reduce_sum(kl[0])
 
+def get_matrices(n_mc, n_nodes, n_rf, dtype, o_single_normal, mu_g, log_sigma2_g, mu_o, log_sigma2_o, mu_w, log_sigma2_w, log_alpha, posterior_lambda_):
+    # Gamma
+    z_g = tf.random.normal((n_mc, n_nodes, 2 * n_rf), dtype=dtype)
+    g = tf.multiply(z_g, tf.sqrt(tf.exp(log_sigma2_g))) + mu_g
+
+    # Omega
+    o = tf.multiply(o_single_normal, tf.sqrt(tf.exp(log_sigma2_o))) + mu_o
+
+    # sampling for W
+    z_w = tf.random.normal((n_mc, n_nodes, n_nodes), dtype=dtype)
+    w = tf.multiply(z_w, tf.sqrt(tf.exp(log_sigma2_w))) + mu_w
+    w = tf.linalg.set_diag(w, tf.zeros((n_mc, n_nodes), dtype=dtype))
+
+    # sampling for A
+    u = tf.random.uniform((n_mc, n_nodes, n_nodes), minval=0, maxval=1, dtype=dtype)
+    eps = tf.constant(1e-20, dtype=dtype)
+    _a = tf.math.divide(tf.add(log_alpha, tf.subtract(tf.math.log(u + eps), tf.math.log(1 - u + eps))),
+                        posterior_lambda_)
+    a = tf.sigmoid(_a)
+    a = tf.linalg.set_diag(a, tf.zeros((n_mc, n_nodes), dtype=dtype))
+
+    b = tf.multiply(a, w)
+    return g, o, b, _a
+
+def calculate_ell(n_mc, n_rf, n_nodes, dim, dtype, g, o, b, log_sigma2_n, log_variance, real_data):
+    n_signals = real_data.shape[0]
+    # generate design matrix with shape (n_signals, n_dim)
+    t = tf.cast(tf.expand_dims(tf.range(n_signals), 1), dtype)
+    mean = tf.math.reduce_mean(t)
+    std = tf.math.reduce_std(t)
+    t = (t - mean) / std
+
+    z = get_z(n_signals, n_mc, n_rf, dim, g, o, log_variance, t)
+    noise = np.random.normal(loc=0, scale=0.0001, size=(n_mc, n_nodes, n_signals))
+    z = tf.add(z, tf.matmul(b, noise))
+
+    v_current = tf.reshape(z, [n_mc, n_nodes, n_signals])
+    exp_y = v_current
+    for _ in range(3):
+        v_current = tf.matmul(b, v_current)
+        exp_y = tf.add(v_current, exp_y)
+
+    real_y = tf.expand_dims(tf.transpose(real_data), 0)
+    norm = tf.norm(exp_y - real_y, ord=2, axis=1)
+    norm_sum_by_t = tf.reduce_sum(norm, axis=1)
+    norm_sum_by_t_avg_by_s = tf.reduce_mean(norm_sum_by_t)
+
+    _two_pi = tf.constant(6.28, dtype=dtype)
+    _half = tf.constant(0.5, dtype=dtype)
+    first_part_ell = - _half * n_nodes * tf.cast(n_signals, dtype=dtype) * tf.math.log(
+        tf.multiply(_two_pi, tf.exp(log_sigma2_n)))
+
+    second_part_ell = - _half * tf.divide(norm_sum_by_t_avg_by_s, tf.exp(log_sigma2_n))
+    ell = first_part_ell + second_part_ell
+
+    return ell, tf.reduce_mean(exp_y, axis=0), real_data
+
+def get_z(n_signals, n_mc, n_rf, dim, g, o, log_variance, t):
+    o_temp = tf.reshape(o, [n_mc * n_rf, dim])
+    fi_under = tf.reshape(tf.matmul(o_temp, tf.transpose(t)), [n_mc, n_rf, n_signals])
+    fi = tf.sqrt(tf.math.divide(tf.exp(log_variance), n_rf)) * tf.concat([tf.cos(fi_under), tf.sin(fi_under)],axis=1)
+    return tf.matmul(g, fi)
+
 
 class ScalableLatnet:
 
@@ -82,10 +157,10 @@ class ScalableLatnet:
         self.log_lengthscale, self.pr_log_sigma2_o, self.log_sigma2_o = self.initialize_omega()
 
         # sample from posterior to get kl and ell terms
-        self.g, self.o, self.b, self._a = self.get_matrices(self.mu_g, self.log_sigma2_g, self.mu_o, self.log_sigma2_o,
+        self.g, self.o, self.b, self._a = get_matrices(self.n_mc, self.n_nodes, self.n_rf, self.FLOAT, self.o_single_normal, self.mu_g, self.log_sigma2_g, self.mu_o, self.log_sigma2_o,
                                                             self.mu_w, self.log_sigma2_w, self.log_alpha,
                                                             self.posterior_lambda_)
-        self.ell, self.pred_signals, self.real_signals = self.calculate_ell(self.g, self.o, self.b, self.log_sigma2_n,
+        self.ell, self.pred_signals, self.real_signals = calculate_ell(self.n_mc, self.n_rf, self.n_nodes, self.dim, self.FLOAT, self.g, self.o, self.b, self.log_sigma2_n,
                                                                             self.log_variance, self.train_data)
 
         self.kl_o, self.kl_w, self.kl_g = self.get_kl()
@@ -188,70 +263,6 @@ class ScalableLatnet:
         pr_log_sigma2_o = -log_lengthscale
         log_sigma2_o = tf.Variable(pr_log_sigma2_o, dtype=self.FLOAT)
         return log_lengthscale, pr_log_sigma2_o, log_sigma2_o
-
-    def get_matrices(self, mu_g, log_sigma2_g, mu_o, log_sigma2_o, mu_w, log_sigma2_w, log_alpha, posterior_lambda_):
-        # Gamma
-        z_g = tf.random.normal((self.n_mc, self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
-        g = tf.multiply(z_g, tf.sqrt(tf.exp(log_sigma2_g))) + mu_g
-
-        # Omega
-        o = tf.multiply(self.o_single_normal, tf.sqrt(tf.exp(log_sigma2_o))) + mu_o
-
-        # sampling for W
-        z_w = tf.random.normal((self.n_mc, self.n_nodes, self.n_nodes), dtype=self.FLOAT)
-        w = tf.multiply(z_w, tf.sqrt(tf.exp(log_sigma2_w))) + mu_w
-        w = tf.linalg.set_diag(w, tf.zeros((self.n_mc, self.n_nodes), dtype=self.FLOAT))
-
-        # sampling for A
-        u = tf.random.uniform((self.n_mc, self.n_nodes, self.n_nodes), minval=0, maxval=1, dtype=self.FLOAT)
-        eps = tf.constant(1e-20, dtype=self.FLOAT)
-        _a = tf.math.divide(tf.add(log_alpha, tf.subtract(tf.math.log(u + eps), tf.math.log(1 - u + eps))),
-                            posterior_lambda_)
-        a = tf.sigmoid(_a)
-        a = tf.linalg.set_diag(a, tf.zeros((self.n_mc, self.n_nodes), dtype=self.FLOAT))
-
-        b = tf.multiply(a, w)
-        return g, o, b, _a
-
-    def calculate_ell(self, g, o, b, log_sigma2_n, log_variance, real_data):
-        n_signals = real_data.shape[0]
-        # generate design matrix with shape (n_signals, n_dim)
-        t = tf.cast(tf.expand_dims(tf.range(n_signals), 1), self.FLOAT)
-        mean = tf.math.reduce_mean(t)
-        std = tf.math.reduce_std(t)
-        t = (t - mean) / std
-
-        z = self.get_z(n_signals, g, o, log_variance, t)
-        noise = np.random.normal(loc=0, scale=0.0001, size=(self.n_mc, self.n_nodes, self.n_signals))
-        z = tf.add(z, tf.matmul(b, noise))
-
-        v_current = tf.reshape(z, [self.n_mc, self.n_nodes, n_signals])
-        exp_y = v_current
-        for i in range(3):
-            v_current = tf.matmul(b, v_current)
-            exp_y = tf.add(v_current, exp_y)
-
-        real_y = tf.expand_dims(tf.transpose(real_data), 0)
-        norm = tf.norm(exp_y - real_y, ord=2, axis=1)
-        norm_sum_by_t = tf.reduce_sum(norm, axis=1)
-        norm_sum_by_t_avg_by_s = tf.reduce_mean(norm_sum_by_t)
-
-        _two_pi = tf.constant(6.28, dtype=self.FLOAT)
-        _half = tf.constant(0.5, dtype=self.FLOAT)
-        first_part_ell = - _half * self.n_nodes * tf.cast(n_signals, dtype=self.FLOAT) * tf.math.log(
-            tf.multiply(_two_pi, tf.exp(log_sigma2_n)))
-
-        second_part_ell = - _half * tf.divide(norm_sum_by_t_avg_by_s, tf.exp(log_sigma2_n))
-        ell = first_part_ell + second_part_ell
-
-        return ell, tf.reduce_mean(exp_y, axis=0), real_data
-
-    def get_z(self, n_signals, g, o, log_variance, t):
-        o_temp = tf.reshape(o, [self.n_mc * self.n_rf, self.dim])
-        fi_under = tf.reshape(tf.matmul(o_temp, tf.transpose(t)), [self.n_mc, self.n_rf, n_signals])
-        fi = tf.sqrt(tf.math.divide(tf.exp(log_variance), self.n_rf)) * tf.concat([tf.cos(fi_under), tf.sin(fi_under)],
-                                                                                  axis=1)
-        return tf.matmul(g, fi)
 
     def get_kl(self):
         kl_o = get_dkl_normal(self.mu_o, tf.exp(self.log_sigma2_o), self.pr_mu_o, tf.exp(self.pr_log_sigma2_o))
