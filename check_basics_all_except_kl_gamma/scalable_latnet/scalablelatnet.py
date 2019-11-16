@@ -64,6 +64,51 @@ def get_kl_normal(posterior_mu, posterior_sigma2, prior_mu, prior_sigma2, dtype)
     kl = tf.linalg.set_diag(tf.expand_dims(kl, -3), tf.zeros((1, tf.shape(kl)[0]), dtype=dtype))
     return tf.reduce_sum(kl[0])
 
+def logp_logistic(X, alpha, lambda_, dtype):
+    """
+    Logarithm of Concrete distribution with parameter `alpha' and hyper-parameter `lambda_' at points `X', i.e.,
+        Concrete(X;alpha, lambda_)
+
+    Args:
+        X: Tensor of shape S x N x N. Locations at which the distribution will be calculated.
+        alpha:  Tensor of shape N x N. To be written.
+        lambda_: double. Tensor of shape ().
+
+    Returns:
+        : A tensor of shape S x N x N. Element ijk is:
+            log lambda_  - lambda_ * X_ijk + log alpha_jk - 2 log (1 + exp (-lambda_ * X_ijk + log alpha_jk))
+
+    """
+
+    mu = tf.log(alpha)
+    return tf.subtract(tf.add(tf.subtract(tf.log(lambda_), tf.multiply(lambda_, X)), mu),
+                    tf.multiply(tf.constant(2.0, dtype=dtype),
+                                tf.log(tf.add(tf.constant(1.0, dtype=dtype),
+                                            tf.exp(tf.add(tf.negative(tf.multiply(lambda_, X)), mu))))))
+
+def get_kl_logistic(X, posterior_alpha, prior_lambda_, posterior_lambda_, prior_alpha, dtype):
+    """
+    Calculates KL divergence between two Concrete distributions using samples from posterior Concrete distribution.
+
+    KL(Concrete(alpha, posterior_lambda_) || Concrete(prior_alpha, prior_lambda))
+
+    Args:
+        X: Tensor of shape S x N x N. These are samples from posterior Concrete distribution.
+        posterior_alpha: Tensor of shape N x N. alpha for posterior distributions.
+        prior_lambda_: Tensor of shape (). prior_lambda_ of prior distribution.
+        posterior_lambda_: Tensor of shape (). posterior_lambda_ for posterior distribution.
+        prior_alpha: Tensor of shape N x N. alpha for prior distributions.
+
+    Returns:
+        : Tensor of shape () representing KL divergence between the two concrete distributions.
+
+    """
+    logdiff = logp_logistic(X, posterior_alpha, posterior_lambda_, dtype) - logp_logistic(X, prior_alpha,
+                                                                                                    prior_lambda_, dtype)
+    logdiff = tf.matrix_set_diag(logdiff, tf.zeros((tf.shape(logdiff)[0], tf.shape(logdiff)[1]),
+                                                    dtype=dtype))  # set diagonal part to zero
+    return tf.reduce_sum(tf.reduce_mean(logdiff, [0]))
+
 def get_matrices(n_mc, n_nodes, n_rf, dtype, o_single_normal, mu_g, log_sigma2_g, mu_o, log_sigma2_o, mu_w, log_sigma2_w, log_alpha, posterior_lambda_):
     # Gamma
     z_g = tf.random.normal((n_mc, n_nodes, 2 * n_rf), dtype=dtype)
@@ -127,22 +172,6 @@ def get_z(n_signals, n_mc, n_rf, dim, g, o, log_variance, t):
     fi = tf.sqrt(tf.math.divide(tf.exp(log_variance), n_rf)) * tf.concat([tf.cos(fi_under), tf.sin(fi_under)],axis=1)
     return tf.matmul(g, fi)
 
-def get_kl_logistic(X, posterior_alpha, prior_lambda_, posterior_lambda_, prior_alpha):
-        prior_mu = tf.math.log(prior_alpha)
-        prior = tf.subtract(tf.add(tf.subtract(tf.math.log(prior_lambda_), tf.multiply(prior_lambda_, X)), prior_mu),
-                            tf.multiply(2, tf.math.log(tf.add(1, tf.exp(
-                                tf.add(tf.negative(tf.multiply(prior_lambda_, X)), prior_mu))))))
-        posterior_mu = tf.math.log(posterior_alpha)
-        posterior = tf.subtract(
-            tf.add(tf.subtract(tf.math.log(posterior_lambda_), tf.multiply(posterior_lambda_, X)), posterior_mu),
-            tf.multiply(2, tf.math.log(
-                tf.add(1, tf.exp(tf.add(tf.negative(tf.multiply(posterior_lambda_, X)), posterior_mu))))))
-
-        logdiff = posterior - prior
-        # set diagonal part to zero
-        logdiff = tf.linalg.set_diag(logdiff, tf.zeros((tf.shape(logdiff)[0], tf.shape(logdiff)[1]), dtype=self.FLOAT))
-        return tf.reduce_sum(tf.reduce_mean(logdiff, [0]))
-
 
 class ScalableLatnet:
 
@@ -179,9 +208,9 @@ class ScalableLatnet:
         self.ell, self.pred_signals, self.real_signals = calculate_ell(self.n_mc, self.n_rf, self.n_nodes, self.dim, self.FLOAT, self.g, self.o, self.b, self.log_sigma2_n,
                                                                             self.log_variance, self.train_data)
 
-        self.kl_o, self.kl_w, self.kl_g = self.get_kl()
+        self.kl_o, self.kl_w, self.kl_g, self.kl_a = self.get_kl()
         # calculating ELBO
-        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_g
+        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a
 
         # get the operation for optimizing variational parameters
         self.var_opt, _, self.var_nans = get_optimizer(tf.negative(self.elbo),
@@ -285,5 +314,5 @@ class ScalableLatnet:
         kl_w = get_kl_normal(self.mu_w, tf.exp(self.log_sigma2_w), self.pr_mu_w, self.pr_sigma2_w, self.FLOAT)
         kl_g = get_dkl_normal(self.mu_g, tf.exp(self.log_sigma2_g), self.pr_mu_g, self.pr_sigma2_g)
         kl_a = get_kl_logistic(self._a, tf.exp(self.log_alpha), self.prior_lambda_, self.posterior_lambda_,
-                                    self.prior_alpha)
-        return kl_o, kl_w, kl_g
+                                    self.prior_alpha, self.FLOAT)
+        return kl_o, kl_w, kl_g, kl_a
