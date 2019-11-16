@@ -1,5 +1,5 @@
 import csv
-from flags import Flags
+from flags_fmri import Flags
 import pandas
 import time
 import argparse
@@ -30,7 +30,7 @@ def functional_connectivity_group(config):
     Ti = int(config['Ti'])
     s = int(config['s'])
     sims = config.get('sims')
-    logger_name = 'scalable_latnet_' + str(sims) + '_' + str(Ti) + '_' + str(s)
+    logger_name = 'fmri_scalable_latnet_' + str(sims) + '_' + str(Ti) + '_' + str(s)
     output_folder = output_folder + str(Ti) + '/'
     folder_name = output_folder + 'subject' + '_' + str(s)
 
@@ -85,7 +85,7 @@ def functional_connectivity_sim(data, subject_true_connections, folder_name, sub
     validation_data = data.iloc[n_training_samples:n_training_samples + n_validation_samples, :]
     test_data = data.iloc[n_training_samples + n_validation_samples:, :]
 
-    myLatnet = ScalableLatnet(myflags, subject=subject, dim=1, train_data=train_data,  validation_data=validation_data,
+    myLatnet = ScalableLatnet(myflags, dim=1, train_data=train_data,  validation_data=validation_data,
                               test_data=test_data, true_conn = subject_true_connections, logger=logger)
     mu, sigma2, alpha = myLatnet.optimize()
     ExprUtil.write_to_file_callback(path, logger)(mu, sigma2, alpha)

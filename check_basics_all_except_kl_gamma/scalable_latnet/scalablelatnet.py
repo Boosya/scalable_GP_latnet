@@ -175,16 +175,16 @@ def get_z(n_signals, n_mc, n_rf, dim, g, o, log_variance, t):
 
 class ScalableLatnet:
 
-    def __init__(self, flags, subject, dim, train_data, validation_data, test_data, true_conn, logger):
+    def __init__(self, flags, dim, train_data, validation_data, test_data, true_conn, logger):
         self.FLOAT = tf.float64
         self.logger = logger
-        self.subject = subject
         self.dim = dim
         (self.n_signals, self.n_nodes) = train_data.shape
         self.train_data = tf.constant(train_data, dtype=self.FLOAT)
         self.validation_data = tf.constant(validation_data, dtype=self.FLOAT)
         self.test_data = tf.constant(test_data, dtype=self.FLOAT)
-        self.true_conn = tf.reshape(tf.constant(true_conn, dtype=self.FLOAT), [self.n_nodes, self.n_nodes])
+        if true_conn:
+            self.true_conn = tf.reshape(tf.constant(true_conn, dtype=self.FLOAT), [self.n_nodes, self.n_nodes])
 
         # Set random seed for tensorflow and numpy operations
         tf.compat.v1.set_random_seed(flags.get_flag('seed'))
@@ -230,7 +230,6 @@ class ScalableLatnet:
         # current global iteration over optimization steps.
         _iter = 0
         while self.n_iter is None or _iter < self.n_iter:
-            self.logger.debug("\nSUBJECT %d: ITERATION %d STARTED\n" % (self.subject, _iter))
             self.run_step(self.n_var_steps, self.var_opt)
             self.run_step(self.n_hyp_steps, self.hyp_opt)
             _iter += 1
@@ -242,7 +241,6 @@ class ScalableLatnet:
         pred_row = self.pred_signals_[row_n, :]
         with open('signal_prediction.csv', 'a', newline='') as file:
             writer = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow([self.subject, row_n])
             writer.writerow(real_row)
             writer.writerow(pred_row)
             writer.writerow([])
@@ -256,8 +254,8 @@ class ScalableLatnet:
                 self.log_optimization(i)
 
     def run_optimization(self, opt):
-        self.elbo_, self.ell_, self.kl_g_, self.kl_o_, self.kl_w_, _ = self.sess.run(
-            [self.elbo, self.ell, self.kl_g, self.kl_o, self.kl_w, opt])
+        self.elbo_, self.ell_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _ = self.sess.run(
+            [self.elbo, self.ell, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt])
 
     def run_variables(self):
         self.elbo_, self.pred_signals_, self.real_signals_, self.mu_w_, self.sigma2_w_, self.alpa_ = self.sess.run((
@@ -266,8 +264,8 @@ class ScalableLatnet:
 
     def log_optimization(self, i):
         self.logger.debug(
-            " local {i:d} iter: elbo={elbo_:.0f} (ell {ell_:.0f}, kl_g {kl_g_:.1f}, kl_o {kl_o_:.1f}, kl_w {kl_w_:.1f})".format(
-                i=i, elbo_=self.elbo_, ell_=self.ell_, kl_g_=self.kl_g_, kl_o_=self.kl_o_, kl_w_=self.kl_w_))
+            " local {i:d} iter: elbo={elbo_:.0f} (ell {ell_:.0f}, kl_g {kl_g_:.1f}, kl_o {kl_o_:.1f}, kl_w {kl_w_:.1f}, kl_a {kl_a_:.1f})".format(
+                i=i, elbo_=self.elbo_, ell_=-self.ell_, kl_g_=self.kl_g_, kl_o_=self.kl_o_, kl_w_=self.kl_w_, kl_a_=self.kl_a_))
 
     def get_hyperparameters(self, flags):
         init_sigma2_n = flags.get_flag('init_sigma2_n')
