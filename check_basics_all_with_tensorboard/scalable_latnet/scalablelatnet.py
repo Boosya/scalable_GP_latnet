@@ -45,9 +45,10 @@ def contains_nan(w):
 def get_optimizer(objective, trainables, learning_rate, max_global_norm=1.0):
     grads = tf.gradients(ys=objective, xs=trainables)
     grads, _ = tf.clip_by_global_norm(grads, clip_norm=max_global_norm)
+    grad_summ_op = tf.summary.merge([tf.summary.histogram("%s-grad" % g[1].name, g[0]) for g in grads])
     grad_var_pairs = zip([replace_nan_with_zero(g) for g in grads], trainables)
     optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate)
-    return optimizer.apply_gradients(grad_var_pairs), grads, contains_nan(grads)
+    return optimizer.apply_gradients(grad_var_pairs), grads, contains_nan(grads), grad_summ_op
 
 
 def get_dkl_normal(mu, sigma2, prior_mu, prior_sigma2):
@@ -221,14 +222,14 @@ class ScalableLatnet:
 
         self.kl_o, self.kl_w, self.kl_g, self.kl_a = self.get_kl()
         # calculating ELBO
-        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a
+        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a - self.kl_g
 
         # get the operation for optimizing variational parameters
-        self.var_opt, _, self.var_nans = get_optimizer(tf.negative(self.elbo),
+        self.var_opt, _, self.var_nans, self.var_grad_summ_op = get_optimizer(tf.negative(self.elbo),
                                                        [self.mu_g, self.log_sigma2_g, self.mu_o, self.log_sigma2_o,
                                                         self.mu_w, self.log_sigma2_w, self.log_alpha], self.lr)
         # get the operation for optimizing hyper parameters
-        self.hyp_opt, _, self.hyp_nans = get_optimizer(tf.negative(self.elbo),
+        self.hyp_opt, _, self.hyp_nans, self.hyp_grad_summ_op = get_optimizer(tf.negative(self.elbo),
                                                        [self.log_sigma2_n, self.log_variance, self.log_lengthscale],
                                                        self.hlr)
 
@@ -241,10 +242,9 @@ class ScalableLatnet:
         # current global iteration over optimization steps.
         _iter = 0
         while self.n_iter is None or _iter < self.n_iter:
-            self.run_step(self.n_var_steps, self.var_opt)
-            self.run_step(self.n_hyp_steps, self.hyp_opt)
+            self.run_step(self.n_var_steps, self.var_opt, self.var_grad_summ_op)
+            self.run_step(self.n_hyp_steps, self.hyp_opt, self.hyp_grad_summ_op)
             _iter += 1
-
         self.run_variables()
 
         row_n = random.randint(1, self.n_nodes - 1)
@@ -264,9 +264,10 @@ class ScalableLatnet:
             if i % self.display_step == 0:
                 self.log_optimization(i)
 
-    def run_optimization(self, opt):
-        self.elbo_, self.ell_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _ = self.sess.run(
-            [self.elbo, self.ell, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt])
+    def run_optimization(self, opt, grad_summ_op):
+        self.elbo_, self.ell_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _, grad_vals = self.sess.run(
+            [self.elbo, self.ell, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt, grad_summ_op])
+        self.writer['train'].add_summary(grad_vals)
 
     def run_variables(self):
         self.elbo_, self.pred_signals_, self.real_signals_, self.mu_w_, self.sigma2_w_, self.alpa_, self.mu_g_, self.sigma2_g_ = self.sess.run((

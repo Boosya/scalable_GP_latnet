@@ -44,3 +44,7 @@ python3 experiment_scalableGPL.py  --sim sim3 --Ti 200 --s 10 --n 10
 python3 experiment_scalableGPL.py  --sim sim3 --Ti 200 --s 20 --n 10
 python3 experiment_scalableGPL.py  --sim sim3 --Ti 200 --s 30 --n 10
 python3 experiment_scalableGPL.py  --sim sim3 --Ti 200 --s 40 --n 10
+
+
+#TODO check why matrix inverse is not working
+#TODO run sydney house data

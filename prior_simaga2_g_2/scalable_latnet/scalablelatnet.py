@@ -221,7 +221,7 @@ class ScalableLatnet:
 
         self.kl_o, self.kl_w, self.kl_g, self.kl_a = self.get_kl()
         # calculating ELBO
-        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a
+        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a - self.kl_g
 
         # get the operation for optimizing variational parameters
         self.var_opt, _, self.var_nans = get_optimizer(tf.negative(self.elbo),
