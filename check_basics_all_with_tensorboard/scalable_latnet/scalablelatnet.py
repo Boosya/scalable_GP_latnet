@@ -1,6 +1,9 @@
 import csv
 import random
 
+# tensorboard --logdir graphs --host=127.0.0.1
+
+
 __author__ = 'EG'
 
 import numpy as np
@@ -45,10 +48,16 @@ def contains_nan(w):
 def get_optimizer(objective, trainables, learning_rate, max_global_norm=1.0):
     grads = tf.gradients(ys=objective, xs=trainables)
     grads, _ = tf.clip_by_global_norm(grads, clip_norm=max_global_norm)
-    grad_summ_op = tf.summary.merge([tf.summary.histogram("%s-grad" % g[1].name, g[0]) for g in grads])
     grad_var_pairs = zip([replace_nan_with_zero(g) for g in grads], trainables)
     optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate)
-    return optimizer.apply_gradients(grad_var_pairs), grads, contains_nan(grads), grad_summ_op
+    grads_ = optimizer.compute_gradients(objective)
+    # l2_norm = lambda t: tf.sqrt(tf.reduce_sum(tf.pow(t, 2)))
+    l2_norm = lambda t: t
+    for gradient, variable in grads_:
+        tf.summary.histogram("gradients/" + variable.name, l2_norm(gradient))
+        tf.summary.histogram("variables/" + variable.name, l2_norm(variable))
+    # grad_summ_op = tf.summary.merge([tf.summary.histogram("%s-grad".format(g[1].name), g[0]) for g in grads_])
+    return optimizer.apply_gradients(grad_var_pairs), grads, contains_nan(grads)
 
 
 def get_dkl_normal(mu, sigma2, prior_mu, prior_sigma2):
@@ -225,11 +234,11 @@ class ScalableLatnet:
         self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a - self.kl_g
 
         # get the operation for optimizing variational parameters
-        self.var_opt, _, self.var_nans, self.var_grad_summ_op = get_optimizer(tf.negative(self.elbo),
+        self.var_opt, _, self.var_nans = get_optimizer(tf.negative(self.elbo),
                                                        [self.mu_g, self.log_sigma2_g, self.mu_o, self.log_sigma2_o,
                                                         self.mu_w, self.log_sigma2_w, self.log_alpha], self.lr)
         # get the operation for optimizing hyper parameters
-        self.hyp_opt, _, self.hyp_nans, self.hyp_grad_summ_op = get_optimizer(tf.negative(self.elbo),
+        self.hyp_opt, _, self.hyp_nans = get_optimizer(tf.negative(self.elbo),
                                                        [self.log_sigma2_n, self.log_variance, self.log_lengthscale],
                                                        self.hlr)
 
@@ -237,13 +246,16 @@ class ScalableLatnet:
         self.init_op = tf.compat.v1.initializers.global_variables()
         self.sess = tf.compat.v1.Session()
         self.sess.run(self.init_op)
+        self.summaries_op = tf.summary.merge_all()
+        self.summary_writer = tf.summary.FileWriter("graphs", self.sess.graph)
 
     def optimize(self):
         # current global iteration over optimization steps.
         _iter = 0
+        self.global_step_id = 0
         while self.n_iter is None or _iter < self.n_iter:
-            self.run_step(self.n_var_steps, self.var_opt, self.var_grad_summ_op)
-            self.run_step(self.n_hyp_steps, self.hyp_opt, self.hyp_grad_summ_op)
+            self.run_step(self.n_var_steps, self.var_opt)
+            self.run_step(self.n_hyp_steps, self.hyp_opt)
             _iter += 1
         self.run_variables()
 
@@ -264,10 +276,11 @@ class ScalableLatnet:
             if i % self.display_step == 0:
                 self.log_optimization(i)
 
-    def run_optimization(self, opt, grad_summ_op):
-        self.elbo_, self.ell_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _, grad_vals = self.sess.run(
-            [self.elbo, self.ell, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt, grad_summ_op])
-        self.writer['train'].add_summary(grad_vals)
+    def run_optimization(self, opt):
+        self.elbo_, self.ell_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _, summary = self.sess.run(
+            [self.elbo, self.ell, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt, self.summaries_op])
+        self.summary_writer.add_summary(summary, self.global_step_id)
+        self.global_step_id += 1
 
     def run_variables(self):
         self.elbo_, self.pred_signals_, self.real_signals_, self.mu_w_, self.sigma2_w_, self.alpa_, self.mu_g_, self.sigma2_g_ = self.sess.run((
@@ -291,7 +304,7 @@ class ScalableLatnet:
 
     def initialize_priors(self):
         prior_mu_g = tf.zeros((self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
-        prior_sigma2_g = 2 * tf.ones((self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
+        prior_sigma2_g = tf.ones((self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
         prior_mu_o = tf.zeros((self.n_rf, self.dim), dtype=self.FLOAT)
         prior_mu_w = tf.zeros((self.n_nodes, self.n_nodes), dtype=self.FLOAT)
         prior_sigma2_w = tf.ones((self.n_nodes, self.n_nodes), dtype=self.FLOAT)
@@ -300,24 +313,23 @@ class ScalableLatnet:
         return prior_mu_g, prior_sigma2_g, prior_mu_o, prior_mu_w, prior_sigma2_w, prior_alpha
 
     def initialize_variables(self):
-        mu_g = tf.Variable(self.pr_mu_g, dtype=self.FLOAT)
-        log_sigma2_g = tf.Variable(tf.math.log(self.pr_sigma2_g), dtype=self.FLOAT)
-        mu_o = tf.Variable(self.pr_mu_o, dtype=self.FLOAT)
-
+        mu_g = tf.Variable(self.pr_mu_g, dtype=self.FLOAT, name="mu_g")
+        log_sigma2_g = tf.Variable(tf.math.log(self.pr_sigma2_g), dtype=self.FLOAT, name="log_sigma2_g")
+        mu_o = tf.Variable(self.pr_mu_o, dtype=self.FLOAT, name="mu_o")
         o_single_normal = np.random.normal(loc=0, scale=1, size=(self.n_mc, self.n_rf, self.dim))
-        log_sigma_2_n = tf.Variable(tf.math.log(tf.cast(self.init_sigma2_n, dtype=self.FLOAT)), dtype=self.FLOAT)
-        log_variance = tf.Variable(tf.math.log(tf.cast(self.init_variance, dtype=self.FLOAT)), dtype=self.FLOAT)
-        mu_w = tf.Variable(self.pr_mu_w, dtype=self.FLOAT)
-        log_sigma2_w = tf.Variable(tf.math.log(self.pr_sigma2_w), dtype=self.FLOAT)
-        log_alpha = tf.Variable(tf.math.log(self.prior_alpha), dtype=self.FLOAT)
+        log_sigma_2_n = tf.Variable(tf.math.log(tf.cast(self.init_sigma2_n, dtype=self.FLOAT)), dtype=self.FLOAT, name="log_sigma_2_n")
+        log_variance = tf.Variable(tf.math.log(tf.cast(self.init_variance, dtype=self.FLOAT)), dtype=self.FLOAT, name="log_variance")
+        mu_w = tf.Variable(self.pr_mu_w, dtype=self.FLOAT, name="mu_w")
+        log_sigma2_w = tf.Variable(tf.math.log(self.pr_sigma2_w), dtype=self.FLOAT, name="log_sigma2_w")
+        log_alpha = tf.Variable(tf.math.log(self.prior_alpha), dtype=self.FLOAT, name="log_alpha")
         return mu_g, log_sigma2_g, mu_o, o_single_normal, log_sigma_2_n, log_variance, mu_w, log_sigma2_w, log_alpha
 
     def initialize_omega(self):
         init_lengthscale_matrix = tf.constant(self.init_lengthscale, dtype=self.FLOAT) * tf.ones((self.n_rf, self.dim),
                                                                                                  dtype=self.FLOAT)
-        log_lengthscale = tf.Variable(2 * tf.math.log(init_lengthscale_matrix), dtype=self.FLOAT)
+        log_lengthscale = tf.Variable(2 * tf.math.log(init_lengthscale_matrix), dtype=self.FLOAT, name="log_lengthscale")
         pr_log_sigma2_o = -log_lengthscale
-        log_sigma2_o = tf.Variable(pr_log_sigma2_o, dtype=self.FLOAT)
+        log_sigma2_o = tf.Variable(pr_log_sigma2_o, dtype=self.FLOAT, name="log_sigma2_o")
         return log_lengthscale, pr_log_sigma2_o, log_sigma2_o
 
     def get_kl(self):

@@ -59,7 +59,7 @@ for (subject in 1 : 1) {
             if ("scalableGPL" %in% methods_list) {
                 print(sprintf('subject %d, expr %d, T %d, method %s', subject, expr, Ti, "scalableGPL"))
                 method = "scalableGPL"
-                latnet_add = paste(latnet_results_path, 'fmri_sim', expr, '_scalableGPL/', Ti, '/subject_', (subject - 1), '/p.csv', sep = "")
+                latnet_add = paste(latnet_results_path, 'fmri_sim', expr, '_scalableGPL/', Ti, '/subject_', (subject - 1), '/p_new.csv', sep = "")
                 latnet_res = read.csv(latnet_add, header = F)
                 pred_net = latnet_res
                 pred_net = t(abs(pred_net))
