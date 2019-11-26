@@ -11,9 +11,10 @@ class Flags():
         #               [prior-fixed, var-fixed, var-resampled]
 
         # inv_calculation -  Way to approximate inverse of the matrix : [approx, solver, cholesky, matrix_inverse]
+
         self.flags = {'sim': sims, 'Ti': Ti, 's': s, 'seed': 1, 'validation_percent': 0.0, 'test_percent': 0.0,
                       'return_best_state': False, 'learn_Omega': 'var-fixed', 'learn_lengthscale': 'yes',
-                      'inv_calculation': 'approx', 'n_approx_terms': 3, 'n_iterations': 7, 'var_steps': 2000,
+                      'inv_calculation': 'matrix_inverse', 'n_approx_terms': 3, 'n_iterations': 2, 'var_steps': 2000,
                       'hyp_steps': 2000, 'display_step': 10, 'var_learning_rate': 0.01,
                       'hyp_learning_rate': 0.001, 'n_mc': 50, 'n_rff': 500,
                       'prior_lambda_': 1., 'posterior_lambda_': .15, 'init_sigma2_n': 0.31, 'init_variance': 0.5,
