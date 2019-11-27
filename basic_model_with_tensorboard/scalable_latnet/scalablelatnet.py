@@ -1,6 +1,9 @@
 import csv
 import random
 
+# tensorboard --logdir graphs --host=127.0.0.1
+
+
 __author__ = 'EG'
 
 import numpy as np
@@ -28,7 +31,9 @@ def get_model_settings(flags):
     display_step = flags.get_flag('display_step')
     lr = flags.get_flag('var_learning_rate')
     hlr = flags.get_flag('hyp_learning_rate')
-    return n_mc, n_rf, n_iterations, n_var_steps, n_hyp_steps, display_step, lr, hlr
+    inv_calculation = flags.get_flag('inv_calculation')
+    n_approx_terms = flags.get_flag('n_approx_terms')
+    return n_mc, n_rf, n_iterations, n_var_steps, n_hyp_steps, display_step, lr, hlr, inv_calculation, n_approx_terms
 
 
 def replace_nan_with_zero(w):
@@ -42,12 +47,26 @@ def contains_nan(w):
     return tf.reduce_all(input_tensor=tf.math.is_nan(w_))
 
 
-def get_optimizer(objective, trainables, learning_rate, max_global_norm=1.0):
+def get_optimizer_old(objective, trainables, learning_rate, max_global_norm=1.0):
     grads = tf.gradients(ys=objective, xs=trainables)
     grads, _ = tf.clip_by_global_norm(grads, clip_norm=max_global_norm)
     grad_var_pairs = zip([replace_nan_with_zero(g) for g in grads], trainables)
     optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate)
+    grads_ = optimizer.compute_gradients(objective)
+    for gradient, variable in grads_:
+        tf.summary.histogram("gradients/" + variable.name, gradient)
+        tf.summary.histogram("variables/" + variable.name, variable)
     return optimizer.apply_gradients(grad_var_pairs), grads, contains_nan(grads)
+
+
+def get_optimizer(objective, trainables, learning_rate):
+    optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate)
+    grads = optimizer.compute_gradients(objective, var_list=trainables)
+    for gradient, variable in grads:
+        tf.summary.histogram("gradients/" + variable.name, gradient)
+    for variable in trainables:
+        tf.summary.histogram("variable/" + variable.name, variable)
+    return optimizer.apply_gradients(grads), grads, contains_nan(grads)
 
 
 def get_dkl_normal(mu, sigma2, prior_mu, prior_sigma2):
@@ -141,45 +160,70 @@ def get_matrices(n_mc, n_nodes, n_rf, dtype, o_single_normal, mu_g, log_sigma2_g
     return g, o, b, _a
 
 
-def calculate_ell(n_mc, n_rf, n_nodes, dim, dtype, g, o, b, log_sigma2_n, log_variance, real_data):
+def calculate_ell(n_mc, n_rf, n_nodes, dim, dtype, g, o, b, log_sigma2_n, log_variance, real_data, inv_calculation,
+                  n_approx_terms):
     n_signals = real_data.shape[0]
+    t = get_t(n_signals, dtype)
+    z = get_z(n_signals, n_mc, n_rf, dim, g, o, b, log_variance, t, n_nodes)
+
+    exp_y = get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, dtype)
+    tf.summary.histogram("exp_y", exp_y)
+    real_y = tf.expand_dims(tf.transpose(real_data), 0)
+
+    ell = calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n)
+    return ell, tf.reduce_mean(exp_y, axis=0), real_data
+
+
+def get_t(n_signals, dtype):
     # generate design matrix with shape (n_signals, n_dim)
     t = tf.cast(tf.expand_dims(tf.range(n_signals), 1), dtype)
     mean = tf.math.reduce_mean(t)
     std = tf.math.reduce_std(t)
     t = (t - mean) / std
+    return t
 
-    z = get_z(n_signals, n_mc, n_rf, dim, g, o, log_variance, t)
+
+def get_z(n_signals, n_mc, n_rf, dim, g, o, b, log_variance, t, n_nodes):
+    o_temp = tf.reshape(o, [n_mc * n_rf, dim])
+    fi_under = tf.reshape(tf.matmul(o_temp, tf.transpose(t)), [n_mc, n_rf, n_signals])
+    fi = tf.sqrt(tf.math.divide(tf.exp(log_variance), n_rf)) * tf.concat([tf.cos(fi_under), tf.sin(fi_under)], axis=1)
+    z = tf.matmul(g, fi)
     noise = np.random.normal(loc=0, scale=0.0001, size=(n_mc, n_nodes, n_signals))
     z = tf.add(z, tf.matmul(b, noise))
+    return z
 
-    v_current = tf.reshape(z, [n_mc, n_nodes, n_signals])
-    exp_y = v_current
-    for _ in range(3):
-        v_current = tf.matmul(b, v_current)
-        exp_y = tf.add(v_current, exp_y)
 
-    real_y = tf.expand_dims(tf.transpose(real_data), 0)
+def get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, dtype):
+    if inv_calculation == "approx":
+        v_current = tf.reshape(z, [n_mc, n_nodes, n_signals])
+        exp_y = v_current
+        for _ in range(n_approx_terms):
+            v_current = tf.matmul(b, v_current)
+            exp_y = tf.add(v_current, exp_y)
+    elif inv_calculation == "matrix_inverse":
+        identity = tf.constant(np.identity(n_nodes), dtype=dtype)
+        identity_minus_b = tf.subtract(identity, b)
+        identity_minus_b_inverse = tf.matrix_inverse(identity_minus_b)
+        exp_y = tf.matmul(identity_minus_b_inverse, z)
+    return exp_y
+
+
+def calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n):
     norm = tf.norm(exp_y - real_y, ord=2, axis=1)
     norm_sum_by_t = tf.reduce_sum(norm, axis=1)
     norm_sum_by_t_avg_by_s = tf.reduce_mean(norm_sum_by_t)
+    tf.summary.scalar("norm", norm_sum_by_t_avg_by_s)
 
     _two_pi = tf.constant(6.28, dtype=dtype)
     _half = tf.constant(0.5, dtype=dtype)
     first_part_ell = - _half * n_nodes * tf.cast(n_signals, dtype=dtype) * tf.math.log(
         tf.multiply(_two_pi, tf.exp(log_sigma2_n)))
+    tf.summary.scalar("first_part_ell", first_part_ell)
 
     second_part_ell = - _half * tf.divide(norm_sum_by_t_avg_by_s, tf.exp(log_sigma2_n))
+    tf.summary.scalar("second_part_ell", second_part_ell)
     ell = first_part_ell + second_part_ell
-
-    return ell, tf.reduce_mean(exp_y, axis=0), real_data
-
-
-def get_z(n_signals, n_mc, n_rf, dim, g, o, log_variance, t):
-    o_temp = tf.reshape(o, [n_mc * n_rf, dim])
-    fi_under = tf.reshape(tf.matmul(o_temp, tf.transpose(t)), [n_mc, n_rf, n_signals])
-    fi = tf.sqrt(tf.math.divide(tf.exp(log_variance), n_rf)) * tf.concat([tf.cos(fi_under), tf.sin(fi_under)], axis=1)
-    return tf.matmul(g, fi)
+    return ell
 
 
 class ScalableLatnet:
@@ -199,7 +243,7 @@ class ScalableLatnet:
         np.random.seed(flags.get_flag('seed'))
         random.seed(flags.get_flag('seed'))
 
-        self.n_mc, self.n_rf, self.n_iter, self.n_var_steps, self.n_hyp_steps, self.display_step, self.lr, self.hlr = get_model_settings(
+        self.n_mc, self.n_rf, self.n_iter, self.n_var_steps, self.n_hyp_steps, self.display_step, self.lr, self.hlr, self.inv_calculation, self.n_approx_terms = get_model_settings(
             flags)
 
         self.init_sigma2_n, self.init_variance, self.init_lengthscale, self.init_p, self.prior_lambda_, self.posterior_lambda_ = self.get_hyperparameters(
@@ -217,11 +261,12 @@ class ScalableLatnet:
         self.ell, self.pred_signals, self.real_signals = calculate_ell(self.n_mc, self.n_rf, self.n_nodes, self.dim,
                                                                        self.FLOAT, self.g, self.o, self.b,
                                                                        self.log_sigma2_n, self.log_variance,
-                                                                       self.train_data)
+                                                                       self.train_data, self.inv_calculation,
+                                                                       self.n_approx_terms)
 
         self.kl_o, self.kl_w, self.kl_g, self.kl_a = self.get_kl()
         # calculating ELBO
-        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a
+        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a - self.kl_g
 
         # get the operation for optimizing variational parameters
         self.var_opt, _, self.var_nans = get_optimizer(tf.negative(self.elbo),
@@ -236,15 +281,18 @@ class ScalableLatnet:
         self.init_op = tf.compat.v1.initializers.global_variables()
         self.sess = tf.compat.v1.Session()
         self.sess.run(self.init_op)
+        self.summaries_op = tf.summary.merge_all()
+        self.summary_writer = tf.summary.FileWriter("graphs", self.sess.graph)
 
     def optimize(self):
         # current global iteration over optimization steps.
         _iter = 0
+        self.global_step_id = 0
         while self.n_iter is None or _iter < self.n_iter:
+            self.logger.debug("ITERATION %d".format(_iter))
             self.run_step(self.n_var_steps, self.var_opt)
             self.run_step(self.n_hyp_steps, self.hyp_opt)
             _iter += 1
-
         self.run_variables()
 
         row_n = random.randint(1, self.n_nodes - 1)
@@ -265,13 +313,15 @@ class ScalableLatnet:
                 self.log_optimization(i)
 
     def run_optimization(self, opt):
-        self.elbo_, self.ell_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _ = self.sess.run(
-            [self.elbo, self.ell, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt])
+        self.elbo_, self.ell_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _, summary = self.sess.run(
+            [self.elbo, self.ell, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt, self.summaries_op])
+        self.summary_writer.add_summary(summary, self.global_step_id)
+        self.global_step_id += 1
 
     def run_variables(self):
-        self.elbo_, self.pred_signals_, self.real_signals_, self.mu_w_, self.sigma2_w_, self.alpa_, self.mu_g_, self.sigma2_g_ = self.sess.run((
-            self.elbo, self.pred_signals, self.real_signals, self.mu_w, tf.exp(self.log_sigma2_w),
-            tf.exp(self.log_alpha),  self.mu_g, tf.exp(self.log_sigma2_g)))
+        self.elbo_, self.pred_signals_, self.real_signals_, self.mu_w_, self.sigma2_w_, self.alpa_, self.mu_g_, self.sigma2_g_ = self.sess.run(
+            (self.elbo, self.pred_signals, self.real_signals, self.mu_w, tf.exp(self.log_sigma2_w),
+             tf.exp(self.log_alpha), self.mu_g, tf.exp(self.log_sigma2_g)))
 
     def log_optimization(self, i):
         self.logger.debug(
@@ -290,7 +340,7 @@ class ScalableLatnet:
 
     def initialize_priors(self):
         prior_mu_g = tf.zeros((self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
-        prior_sigma2_g = 2 * tf.ones((self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
+        prior_sigma2_g = tf.zeros((self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
         prior_mu_o = tf.zeros((self.n_rf, self.dim), dtype=self.FLOAT)
         prior_mu_w = tf.zeros((self.n_nodes, self.n_nodes), dtype=self.FLOAT)
         prior_sigma2_w = tf.ones((self.n_nodes, self.n_nodes), dtype=self.FLOAT)
@@ -299,24 +349,26 @@ class ScalableLatnet:
         return prior_mu_g, prior_sigma2_g, prior_mu_o, prior_mu_w, prior_sigma2_w, prior_alpha
 
     def initialize_variables(self):
-        mu_g = tf.Variable(self.pr_mu_g, dtype=self.FLOAT)
-        log_sigma2_g = tf.Variable(tf.math.log(self.pr_sigma2_g), dtype=self.FLOAT)
-        mu_o = tf.Variable(self.pr_mu_o, dtype=self.FLOAT)
-
+        mu_g = tf.Variable(self.pr_mu_g, dtype=self.FLOAT, name="mu_g")
+        log_sigma2_g = tf.Variable(tf.math.log(self.pr_sigma2_g), dtype=self.FLOAT, name="log_sigma2_g")
+        mu_o = tf.Variable(self.pr_mu_o, dtype=self.FLOAT, name="mu_o")
         o_single_normal = np.random.normal(loc=0, scale=1, size=(self.n_mc, self.n_rf, self.dim))
-        log_sigma_2_n = tf.Variable(tf.math.log(tf.cast(self.init_sigma2_n, dtype=self.FLOAT)), dtype=self.FLOAT)
-        log_variance = tf.Variable(tf.math.log(tf.cast(self.init_variance, dtype=self.FLOAT)), dtype=self.FLOAT)
-        mu_w = tf.Variable(self.pr_mu_w, dtype=self.FLOAT)
-        log_sigma2_w = tf.Variable(tf.math.log(self.pr_sigma2_w), dtype=self.FLOAT)
-        log_alpha = tf.Variable(tf.math.log(self.prior_alpha), dtype=self.FLOAT)
+        log_sigma_2_n = tf.Variable(tf.math.log(tf.cast(self.init_sigma2_n, dtype=self.FLOAT)), dtype=self.FLOAT,
+                                    name="log_sigma_2_n")
+        log_variance = tf.Variable(tf.math.log(tf.cast(self.init_variance, dtype=self.FLOAT)), dtype=self.FLOAT,
+                                   name="log_variance")
+        mu_w = tf.Variable(self.pr_mu_w, dtype=self.FLOAT, name="mu_w")
+        log_sigma2_w = tf.Variable(tf.math.log(self.pr_sigma2_w), dtype=self.FLOAT, name="log_sigma2_w")
+        log_alpha = tf.Variable(tf.math.log(self.prior_alpha), dtype=self.FLOAT, name="log_alpha")
         return mu_g, log_sigma2_g, mu_o, o_single_normal, log_sigma_2_n, log_variance, mu_w, log_sigma2_w, log_alpha
 
     def initialize_omega(self):
         init_lengthscale_matrix = tf.constant(self.init_lengthscale, dtype=self.FLOAT) * tf.ones((self.n_rf, self.dim),
                                                                                                  dtype=self.FLOAT)
-        log_lengthscale = tf.Variable(2 * tf.math.log(init_lengthscale_matrix), dtype=self.FLOAT)
+        log_lengthscale = tf.Variable(2 * tf.math.log(init_lengthscale_matrix), dtype=self.FLOAT,
+                                      name="log_lengthscale")
         pr_log_sigma2_o = -log_lengthscale
-        log_sigma2_o = tf.Variable(pr_log_sigma2_o, dtype=self.FLOAT)
+        log_sigma2_o = tf.Variable(pr_log_sigma2_o, dtype=self.FLOAT, name="log_sigma2_o")
         return log_lengthscale, pr_log_sigma2_o, log_sigma2_o
 
     def get_kl(self):
