@@ -47,26 +47,16 @@ def contains_nan(w):
     return tf.reduce_all(input_tensor=tf.math.is_nan(w_))
 
 
-def get_optimizer_old(objective, trainables, learning_rate, max_global_norm=1.0):
+def get_optimizer(objective, trainables, learning_rate, tensorboard, max_global_norm=1.0):
     grads = tf.gradients(ys=objective, xs=trainables)
     grads, _ = tf.clip_by_global_norm(grads, clip_norm=max_global_norm)
     grad_var_pairs = zip([replace_nan_with_zero(g) for g in grads], trainables)
     optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate)
-    grads_ = optimizer.compute_gradients(objective)
-    for gradient, variable in grads_:
-        tf.summary.histogram("gradients/" + variable.name, gradient)
-        tf.summary.histogram("variables/" + variable.name, variable)
+    if tensorboard:
+        grads_ = optimizer.compute_gradients(objective)
+        for gradient, variable in grads_:
+            tf.summary.histogram("gradients/" + variable.name, gradient)
     return optimizer.apply_gradients(grad_var_pairs), grads, contains_nan(grads)
-
-
-def get_optimizer(objective, trainables, learning_rate):
-    optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate)
-    grads = optimizer.compute_gradients(objective, var_list=trainables)
-    for gradient, variable in grads:
-        tf.summary.histogram("gradients/" + variable.name, gradient)
-    for variable in trainables:
-        tf.summary.histogram("variable/" + variable.name, variable)
-    return optimizer.apply_gradients(grads), grads, contains_nan(grads)
 
 
 def get_dkl_normal(mu, sigma2, prior_mu, prior_sigma2):
@@ -161,16 +151,17 @@ def get_matrices(n_mc, n_nodes, n_rf, dtype, o_single_normal, mu_g, log_sigma2_g
 
 
 def calculate_ell(n_mc, n_rf, n_nodes, dim, dtype, g, o, b, log_sigma2_n, log_variance, real_data, inv_calculation,
-                  n_approx_terms):
+                  n_approx_terms, tensorboard):
     n_signals = real_data.shape[0]
     t = get_t(n_signals, dtype)
     z = get_z(n_signals, n_mc, n_rf, dim, g, o, b, log_variance, t, n_nodes)
 
     exp_y = get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, dtype)
-    tf.summary.histogram("exp_y", exp_y)
+    if tensorboard:
+        tf.summary.histogram("exp_y", replace_nan_with_zero(exp_y))
     real_y = tf.expand_dims(tf.transpose(real_data), 0)
 
-    ell = calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n)
+    ell = calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n, tensorboard)
     return ell, tf.reduce_mean(exp_y, axis=0), real_data
 
 
@@ -208,21 +199,21 @@ def get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, d
     return exp_y
 
 
-def calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n):
+def calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n, tensorboard):
     norm = tf.norm(exp_y - real_y, ord=2, axis=1)
     norm_sum_by_t = tf.reduce_sum(norm, axis=1)
     norm_sum_by_t_avg_by_s = tf.reduce_mean(norm_sum_by_t)
-    tf.summary.scalar("norm", norm_sum_by_t_avg_by_s)
 
     _two_pi = tf.constant(6.28, dtype=dtype)
     _half = tf.constant(0.5, dtype=dtype)
     first_part_ell = - _half * n_nodes * tf.cast(n_signals, dtype=dtype) * tf.math.log(
         tf.multiply(_two_pi, tf.exp(log_sigma2_n)))
-    tf.summary.scalar("first_part_ell", first_part_ell)
-
     second_part_ell = - _half * tf.divide(norm_sum_by_t_avg_by_s, tf.exp(log_sigma2_n))
-    tf.summary.scalar("second_part_ell", second_part_ell)
     ell = first_part_ell + second_part_ell
+    if tensorboard:
+        tf.summary.scalar("norm", replace_nan_with_zero(-norm_sum_by_t_avg_by_s))
+        tf.summary.scalar("first_part_ell", replace_nan_with_zero(first_part_ell))
+        tf.summary.scalar("second_part_ell", replace_nan_with_zero(second_part_ell))
     return ell
 
 
@@ -243,6 +234,8 @@ class ScalableLatnet:
         np.random.seed(flags.get_flag('seed'))
         random.seed(flags.get_flag('seed'))
 
+        self.tensorboard = flags.get_flag('tensorboard')
+
         self.n_mc, self.n_rf, self.n_iter, self.n_var_steps, self.n_hyp_steps, self.display_step, self.lr, self.hlr, self.inv_calculation, self.n_approx_terms = get_model_settings(
             flags)
 
@@ -262,34 +255,36 @@ class ScalableLatnet:
                                                                        self.FLOAT, self.g, self.o, self.b,
                                                                        self.log_sigma2_n, self.log_variance,
                                                                        self.train_data, self.inv_calculation,
-                                                                       self.n_approx_terms)
+                                                                       self.n_approx_terms, self.tensorboard)
 
         self.kl_o, self.kl_w, self.kl_g, self.kl_a = self.get_kl()
         # calculating ELBO
-        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a - self.kl_g
+        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a - self.kl_g / 100000
 
         # get the operation for optimizing variational parameters
         self.var_opt, _, self.var_nans = get_optimizer(tf.negative(self.elbo),
                                                        [self.mu_g, self.log_sigma2_g, self.mu_o, self.log_sigma2_o,
-                                                        self.mu_w, self.log_sigma2_w, self.log_alpha], self.lr)
+                                                        self.mu_w, self.log_sigma2_w, self.log_alpha], self.lr,
+                                                       self.tensorboard)
         # get the operation for optimizing hyper parameters
         self.hyp_opt, _, self.hyp_nans = get_optimizer(tf.negative(self.elbo),
                                                        [self.log_sigma2_n, self.log_variance, self.log_lengthscale],
-                                                       self.hlr)
+                                                       self.hlr, self.tensorboard)
 
         # initialize variables
         self.init_op = tf.compat.v1.initializers.global_variables()
         self.sess = tf.compat.v1.Session()
         self.sess.run(self.init_op)
-        self.summaries_op = tf.summary.merge_all()
-        self.summary_writer = tf.summary.FileWriter("graphs", self.sess.graph)
+        if self.tensorboard:
+            self.summaries_op = tf.summary.merge_all()
+            self.summary_writer = tf.summary.FileWriter("graphs", self.sess.graph)
 
     def optimize(self):
         # current global iteration over optimization steps.
         _iter = 0
         self.global_step_id = 0
         while self.n_iter is None or _iter < self.n_iter:
-            self.logger.debug("ITERATION %d".format(_iter))
+            self.logger.debug("ITERATION {iter:d}".format(iter=_iter))
             self.run_step(self.n_var_steps, self.var_opt)
             self.run_step(self.n_hyp_steps, self.hyp_opt)
             _iter += 1
@@ -313,9 +308,11 @@ class ScalableLatnet:
                 self.log_optimization(i)
 
     def run_optimization(self, opt):
-        self.elbo_, self.ell_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _, summary = self.sess.run(
-            [self.elbo, self.ell, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt, self.summaries_op])
-        self.summary_writer.add_summary(summary, self.global_step_id)
+        self.elbo_, self.ell_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _ = self.sess.run(
+            [self.elbo, self.ell, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt])
+        if self.tensorboard:
+            summary = self.sess.run([self.summaries_op])
+            self.summary_writer.add_summary(summary, self.global_step_id)
         self.global_step_id += 1
 
     def run_variables(self):
@@ -340,7 +337,7 @@ class ScalableLatnet:
 
     def initialize_priors(self):
         prior_mu_g = tf.zeros((self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
-        prior_sigma2_g = tf.zeros((self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
+        prior_sigma2_g = tf.ones((self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
         prior_mu_o = tf.zeros((self.n_rf, self.dim), dtype=self.FLOAT)
         prior_mu_w = tf.zeros((self.n_nodes, self.n_nodes), dtype=self.FLOAT)
         prior_sigma2_w = tf.ones((self.n_nodes, self.n_nodes), dtype=self.FLOAT)

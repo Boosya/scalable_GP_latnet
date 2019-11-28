@@ -17,7 +17,7 @@ class Flags():
                       'hyp_steps': 2000, 'display_step': 10, 'var_learning_rate': 0.01,
                       'hyp_learning_rate': 0.001, 'n_mc': 50, 'n_rff': 500,
                       'prior_lambda_': 1., 'posterior_lambda_': .15, 'init_sigma2_n': 0.31, 'init_variance': 0.5,
-                      'init_lengthscale': 1. / sqrt(Ti), 'init_p': 0.5}
+                      'init_lengthscale': 1. / sqrt(Ti), 'init_p': 0.5, 'tensorboard': False}
 
     def get_flag(self, key):
         return self.flags.get(key)
