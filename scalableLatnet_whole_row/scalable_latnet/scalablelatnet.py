@@ -182,8 +182,8 @@ def get_z(n_signals, n_mc, n_rf, dim, g, o, b, log_variance, t, n_nodes):
     fi_under = tf.reshape(tf.matmul(o_temp, tf.transpose(t)), [n_mc, n_rf, n_signals])
     fi = tf.sqrt(tf.math.divide(tf.exp(log_variance), n_rf)) * tf.concat([tf.cos(fi_under), tf.sin(fi_under)], axis=1)
     z = tf.matmul(g, fi)
-    noise = np.random.normal(loc=0, scale=0.0001, size=(n_mc, n_nodes, n_signals))
-    z = tf.add(z, tf.matmul(b, noise))
+    # noise = np.random.normal(loc=0, scale=0.0001, size=(n_mc, n_nodes, n_signals))
+    # z = tf.add(z, tf.matmul(b, noise))
     return z
 
 

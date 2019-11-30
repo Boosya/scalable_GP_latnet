@@ -59,7 +59,7 @@ def functional_connectivity_group(config):
 def functional_connectivity_sim(data, subject_true_connections, folder_name, subject, logger_name, sims, Ti, s):
     myflags = Flags(sims, Ti, s)
     n_test_samples = int(Ti * myflags.get_flag('test_percent'))
-    for fold in range(int(Ti/n_test_samples)):
+    for fold in range(1):
         path = RESULTS + folder_name + '_fold'+str(fold)
         ExprUtil.check_dir_exists(path)
         logger = logging.getLogger(logger_name)
@@ -98,8 +98,8 @@ if __name__ == '__main__':
     # parser.add_argument('--n', help='number of subjects to run in a row')
     args = parser.parse_args()
 
-    for sim in ['sim3']:
-        for Ti in [200]:
+    for sim in ['sim2']:
+        for Ti in [100]:
             config = {'sims': sim, 'Ti': Ti, 's': args.s, 'output_folder': 'fmri/fmri_' + sim + '_scalableGPL/',
                       'input_file': 'fmri_sim/ts_' + sim + '.csv'}
             functional_connectivity_group(config)
