@@ -88,4 +88,3 @@ kak v deep GP delaut normalizazijy?
 
 
 
-

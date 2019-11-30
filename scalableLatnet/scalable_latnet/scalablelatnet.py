@@ -8,6 +8,8 @@ __author__ = 'EG'
 
 import numpy as np
 import tensorflow as tf
+from sklearn.metrics import roc_auc_score
+
 
 
 def get_model_settings(flags):
@@ -33,7 +35,8 @@ def get_model_settings(flags):
     hlr = flags.get_flag('hyp_learning_rate')
     inv_calculation = flags.get_flag('inv_calculation')
     n_approx_terms = flags.get_flag('n_approx_terms')
-    return n_mc, n_rf, n_iterations, n_var_steps, n_hyp_steps, display_step, lr, hlr, inv_calculation, n_approx_terms
+    kl_g_weight = flags.get_flag('kl_g_weight')
+    return n_mc, n_rf, n_iterations, n_var_steps, n_hyp_steps, display_step, lr, hlr, inv_calculation, n_approx_terms, kl_g_weight
 
 
 def replace_nan_with_zero(w):
@@ -219,13 +222,14 @@ def calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n, tenso
 
 class ScalableLatnet:
 
-    def __init__(self, flags, dim, train_data, validation_data, test_data, true_conn, logger):
+    def __init__(self, flags, dim, train_data, test_data, true_conn, logger, subject, fold):
+        self.subject = subject
+        self.fold = fold
         self.FLOAT = tf.float64
         self.logger = logger
         self.dim = dim
         (self.n_signals, self.n_nodes) = train_data.shape
         self.train_data = tf.constant(train_data, dtype=self.FLOAT)
-        self.validation_data = tf.constant(validation_data, dtype=self.FLOAT)
         self.test_data = tf.constant(test_data, dtype=self.FLOAT)
         self.true_conn = tf.reshape(tf.constant(true_conn, dtype=self.FLOAT), [self.n_nodes, self.n_nodes])
 
@@ -236,7 +240,7 @@ class ScalableLatnet:
 
         self.tensorboard = flags.get_flag('tensorboard')
 
-        self.n_mc, self.n_rf, self.n_iter, self.n_var_steps, self.n_hyp_steps, self.display_step, self.lr, self.hlr, self.inv_calculation, self.n_approx_terms = get_model_settings(
+        self.n_mc, self.n_rf, self.n_iter, self.n_var_steps, self.n_hyp_steps, self.display_step, self.lr, self.hlr, self.inv_calculation, self.n_approx_terms, self.kl_g_weight = get_model_settings(
             flags)
 
         self.init_sigma2_n, self.init_variance, self.init_lengthscale, self.init_p, self.prior_lambda_, self.posterior_lambda_ = self.get_hyperparameters(
@@ -256,10 +260,16 @@ class ScalableLatnet:
                                                                        self.log_sigma2_n, self.log_variance,
                                                                        self.train_data, self.inv_calculation,
                                                                        self.n_approx_terms, self.tensorboard)
+        _, self.test_pred_signals, self.test_real_signals = calculate_ell(self.n_mc, self.n_rf, self.n_nodes, self.dim,
+                                                                          self.FLOAT, self.g, self.o, self.b,
+                                                                          self.log_sigma2_n, self.log_variance,
+                                                                          self.test_data, self.inv_calculation,
+                                                                          self.n_approx_terms, self.tensorboard)
+        self.test_mse = tf.reduce_mean(tf.math.pow(self.test_real_signals - tf.transpose(self.test_pred_signals), 2))
 
         self.kl_o, self.kl_w, self.kl_g, self.kl_a = self.get_kl()
         # calculating ELBO
-        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a - self.kl_g / 100000
+        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a - self.kl_g*self.kl_g_weight
 
         # get the operation for optimizing variational parameters
         self.var_opt, _, self.var_nans = get_optimizer(tf.negative(self.elbo),
@@ -290,16 +300,14 @@ class ScalableLatnet:
             _iter += 1
         self.run_variables()
 
-        row_n = random.randint(1, self.n_nodes - 1)
-        real_row = self.real_signals_[:, row_n]
-        pred_row = self.pred_signals_[row_n, :]
-        with open('signal_prediction.csv', 'a', newline='') as file:
-            writer = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow(real_row)
-            writer.writerow(pred_row)
-            writer.writerow([])
-            file.close()
-        return self.mu_w_, self.sigma2_w_, self.alpa_, self.mu_g_, self.sigma2_g_
+        self.test_pred_signals_, self.test_real_signals_, self.test_mse_, self.true_conn_ = self.sess.run(
+            [self.test_pred_signals, self.test_real_signals, self.test_mse, self.true_conn])
+        self.auc_ = self.calculate_auc()
+
+        self.logger.debug("Resulting MSE {mse:.2f}".format(mse=self.test_mse_))
+        self.logger.debug("Resulting AUC {auc:.2f}".format(auc=self.auc_))
+        self.write_results()
+        return self.mu_w_, self.sigma2_w_, self.alpha_, self.mu_g_, self.sigma2_g_
 
     def run_step(self, n_steps, opt):
         for i in range(0, n_steps):
@@ -316,7 +324,7 @@ class ScalableLatnet:
         self.global_step_id += 1
 
     def run_variables(self):
-        self.elbo_, self.pred_signals_, self.real_signals_, self.mu_w_, self.sigma2_w_, self.alpa_, self.mu_g_, self.sigma2_g_ = self.sess.run(
+        self.elbo_, self.pred_signals_, self.real_signals_, self.mu_w_, self.sigma2_w_, self.alpha_, self.mu_g_, self.sigma2_g_ = self.sess.run(
             (self.elbo, self.pred_signals, self.real_signals, self.mu_w, tf.exp(self.log_sigma2_w),
              tf.exp(self.log_alpha), self.mu_g, tf.exp(self.log_sigma2_g)))
 
@@ -375,3 +383,66 @@ class ScalableLatnet:
         kl_a = get_kl_logistic(self._a, tf.exp(self.log_alpha), self.prior_lambda_, self.posterior_lambda_,
                                self.prior_alpha, self.FLOAT)
         return kl_o, kl_w, kl_g, kl_a
+
+    def write_results(self):
+        rand_node = random.randint(1, self.n_nodes - 1)
+        train_real_row = self.real_signals_[:, rand_node]
+        train_pred_row = self.pred_signals_[rand_node, :]
+        with open('train_signal_prediction.csv', 'a', newline='') as file:
+            writer = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+            writer.writerow([self.subject, self.fold,rand_node])
+            writer.writerow(train_real_row)
+            writer.writerow(train_pred_row)
+            writer.writerow([])
+            file.close()
+
+        with open('test_signal_prediction_all.csv', 'a', newline='') as file:
+            writer = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+            writer.writerow([self.subject, self.fold])
+            writer.writerows(self.test_real_signals_)
+            writer.writerows(self.test_pred_signals_)
+            writer.writerows([])
+            file.close()
+        test_real_row = self.test_real_signals_[:, rand_node]
+        test_pred_row = self.test_pred_signals_[rand_node, :]
+        with open('test_signal_prediction.csv', 'a', newline='') as file:
+            writer = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+            writer.writerow([self.subject, self.fold, rand_node])
+            writer.writerow(test_real_row)
+            writer.writerow(test_pred_row)
+            writer.writerows([])
+            file.close()
+        with open('results.csv', 'a', newline='') as file:
+            writer = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+            writer.writerow([self.subject, self.fold, rand_node, self.test_mse_, self.auc_])
+            writer.writerows([])
+            file.close()
+
+    def calculate_auc(self):
+        self.real_conn_ = self.get_bool_array_of_upper_and_lower_triangular(self.true_conn_)
+        self.p_ = self.alpha_ / (1.0 + self.alpha_)
+        self.pred_conn_ = self.get_array_of_upper_and_lower_triangular(self.p_)
+        self.auc_ = roc_auc_score(self.real_conn_, self.pred_conn_)
+        return 0
+
+    def get_bool_array_of_upper_and_lower_triangular(self, array):
+        tri_upper_no_diag = np.triu(array, k=1)
+        tri_lower_no_diag = np.tril(array, k=-1)
+        final_matrix = np.logical_or(tri_upper_no_diag, tri_lower_no_diag)
+        final_matrix_without_diag = final_matrix[~np.eye(final_matrix.shape[0], dtype=bool)].reshape(
+            final_matrix.shape[0], -1)
+        result = []
+        for row in final_matrix_without_diag:
+            result.extend(row)
+        return result
+
+    def get_array_of_upper_and_lower_triangular(self, array):
+        tri_upper_no_diag = np.triu(array, k=1)
+        tri_lower_no_diag = np.tril(array, k=-1)
+        final_matrix = tri_upper_no_diag + tri_lower_no_diag
+        final_matrix_without_diag = final_matrix[~np.eye(final_matrix.shape[0], dtype=bool)].reshape(
+            final_matrix.shape[0], -1)
+        result = []
+        for row in final_matrix_without_diag:
+            result.extend(row)
+        return result
