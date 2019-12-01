@@ -283,13 +283,16 @@ class ScalableLatnet:
 
         # initialize variables
         self.init_op = tf.compat.v1.initializers.global_variables()
-        self.sess = tf.compat.v1.Session()
+        config = tf.ConfigProto()
+        config.intra_op_parallelism_threads = 3
+        config.inter_op_parallelism_threads = 3
+        self.sess = tf.compat.v1.Session(config=config)
         self.sess.run(self.init_op)
         if self.tensorboard:
             self.summaries_op = tf.summary.merge_all()
             self.summary_writer = tf.summary.FileWriter("graphs", self.sess.graph)
 
-    def optimize(self):
+    def optimize(self, result_filenames):
         # current global iteration over optimization steps.
         _iter = 0
         self.global_step_id = 0
@@ -306,7 +309,7 @@ class ScalableLatnet:
 
         self.logger.debug("Resulting MSE {mse:.2f}".format(mse=self.test_mse_))
         self.logger.debug("Resulting AUC {auc:.2f}".format(auc=self.auc_))
-        self.write_results()
+        self.write_results(result_filenames)
         return self.mu_w_, self.sigma2_w_, self.alpha_, self.mu_g_, self.sigma2_g_
 
     def run_step(self, n_steps, opt):
@@ -384,37 +387,37 @@ class ScalableLatnet:
                                self.prior_alpha, self.FLOAT)
         return kl_o, kl_w, kl_g, kl_a
 
-    def write_results(self):
+    def write_results(self, result_filenames):
         rand_node = random.randint(1, self.n_nodes - 1)
         train_real_row = self.real_signals_[:, rand_node]
         train_pred_row = self.pred_signals_[rand_node, :]
-        with open('train_signal_prediction.csv', 'a', newline='') as file:
+        with open(result_filenames+'train_signal_prediction.csv', 'a', newline='') as file:
             writer = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow([self.subject, self.fold,rand_node])
+            writer.writerow([self.subject, self.fold, rand_node, self.n_mc, self.n_rf])
             writer.writerow(train_real_row)
             writer.writerow(train_pred_row)
             writer.writerow([])
             file.close()
 
-        with open('test_signal_prediction_all.csv', 'a', newline='') as file:
+        with open(result_filenames+'test_signal_prediction_all.csv', 'a', newline='') as file:
             writer = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow([self.subject, self.fold])
+            writer.writerow([self.subject, self.fold, self.n_mc, self.n_rf])
             writer.writerows(self.test_real_signals_)
             writer.writerows(self.test_pred_signals_)
             writer.writerows([])
             file.close()
         test_real_row = self.test_real_signals_[:, rand_node]
         test_pred_row = self.test_pred_signals_[rand_node, :]
-        with open('test_signal_prediction.csv', 'a', newline='') as file:
+        with open(result_filenames+'test_signal_prediction.csv', 'a', newline='') as file:
             writer = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow([self.subject, self.fold, rand_node])
+            writer.writerow([self.subject, self.fold, rand_node, self.n_mc, self.n_rf])
             writer.writerow(test_real_row)
             writer.writerow(test_pred_row)
             writer.writerows([])
             file.close()
-        with open('results.csv', 'a', newline='') as file:
+        with open(result_filenames+'result.csv', 'a', newline='') as file:
             writer = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow([self.subject, self.fold, rand_node, self.test_mse_, self.auc_])
+            writer.writerow([self.subject, self.fold, rand_node, self.n_mc, self.n_rf, self.test_mse_, self.auc_])
             writer.writerows([])
             file.close()
 
