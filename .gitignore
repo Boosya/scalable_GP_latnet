@@ -8,4 +8,4 @@ venv/
 .idea/
 data/R/.Rhistory
 *.code-workspace
-result*.csv
+*result*.csv
