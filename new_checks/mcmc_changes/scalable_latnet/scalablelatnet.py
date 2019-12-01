@@ -182,8 +182,8 @@ def get_z(n_signals, n_mc, n_rf, dim, g, o, b, log_variance, t, n_nodes):
     fi_under = tf.reshape(tf.matmul(o_temp, tf.transpose(t)), [n_mc, n_rf, n_signals])
     fi = tf.sqrt(tf.math.divide(tf.exp(log_variance), n_rf)) * tf.concat([tf.cos(fi_under), tf.sin(fi_under)], axis=1)
     z = tf.matmul(g, fi)
-    # noise = np.random.normal(loc=0, scale=0.0001, size=(n_mc, n_nodes, n_signals))
-    # z = tf.add(z, tf.matmul(b, noise))
+    noise = np.random.normal(loc=0, scale=0.0001, size=(n_mc, n_nodes, n_signals))
+    z = tf.add(z, tf.matmul(b, noise))
     return z
 
 
@@ -269,7 +269,8 @@ class ScalableLatnet:
 
         self.kl_o, self.kl_w, self.kl_g, self.kl_a = self.get_kl()
         # calculating ELBO
-        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a - self.kl_g*self.kl_g_weight
+        # self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a - self.kl_g*self.kl_g_weight
+        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a
 
         # get the operation for optimizing variational parameters
         self.var_opt, _, self.var_nans = get_optimizer(tf.negative(self.elbo),
@@ -283,10 +284,7 @@ class ScalableLatnet:
 
         # initialize variables
         self.init_op = tf.compat.v1.initializers.global_variables()
-        config = tf.ConfigProto()
-        config.intra_op_parallelism_threads = 3
-        config.inter_op_parallelism_threads = 3
-        self.sess = tf.compat.v1.Session(config=config)
+        self.sess = tf.compat.v1.Session()
         self.sess.run(self.init_op)
         if self.tensorboard:
             self.summaries_op = tf.summary.merge_all()
@@ -394,6 +392,7 @@ class ScalableLatnet:
         with open('train_signal_prediction.csv', 'a', newline='') as file:
             writer = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
             writer.writerow([self.subject, self.fold,rand_node])
+            writer.writerow([self.n_mc, self.n_rf])
             writer.writerow(train_real_row)
             writer.writerow(train_pred_row)
             writer.writerow([])
@@ -402,6 +401,7 @@ class ScalableLatnet:
         with open('test_signal_prediction_all.csv', 'a', newline='') as file:
             writer = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
             writer.writerow([self.subject, self.fold])
+            writer.writerow([self.n_mc, self.n_rf])
             writer.writerows(self.test_real_signals_)
             writer.writerows(self.test_pred_signals_)
             writer.writerows([])
@@ -411,6 +411,7 @@ class ScalableLatnet:
         with open('test_signal_prediction.csv', 'a', newline='') as file:
             writer = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
             writer.writerow([self.subject, self.fold, rand_node])
+            writer.writerow([self.n_mc, self.n_rf])
             writer.writerow(test_real_row)
             writer.writerow(test_pred_row)
             writer.writerows([])

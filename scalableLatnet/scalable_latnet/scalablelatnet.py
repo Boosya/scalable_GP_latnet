@@ -423,7 +423,7 @@ class ScalableLatnet:
         self.p_ = self.alpha_ / (1.0 + self.alpha_)
         self.pred_conn_ = self.get_array_of_upper_and_lower_triangular(self.p_)
         self.auc_ = roc_auc_score(self.real_conn_, self.pred_conn_)
-        return 0
+        return self.auc_
 
     def get_bool_array_of_upper_and_lower_triangular(self, array):
         tri_upper_no_diag = np.triu(array, k=1)
