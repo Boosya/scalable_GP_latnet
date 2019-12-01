@@ -160,8 +160,6 @@ def calculate_ell(n_mc, n_rf, n_nodes, dim, dtype, g, o, b, log_sigma2_n, log_va
     z = get_z(n_signals, n_mc, n_rf, dim, g, o, b, log_variance, t, n_nodes)
 
     exp_y = get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, dtype)
-    if tensorboard:
-        tf.summary.histogram("exp_y", replace_nan_with_zero(exp_y))
     real_y = tf.expand_dims(tf.transpose(real_data), 0)
 
     ell = calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n, tensorboard)
@@ -213,10 +211,6 @@ def calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n, tenso
         tf.multiply(_two_pi, tf.exp(log_sigma2_n)))
     second_part_ell = - _half * tf.divide(norm_sum_by_t_avg_by_s, tf.exp(log_sigma2_n))
     ell = first_part_ell + second_part_ell
-    if tensorboard:
-        tf.summary.scalar("norm", replace_nan_with_zero(-norm_sum_by_t_avg_by_s))
-        tf.summary.scalar("first_part_ell", replace_nan_with_zero(first_part_ell))
-        tf.summary.scalar("second_part_ell", replace_nan_with_zero(second_part_ell))
     return ell
 
 

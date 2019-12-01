@@ -58,12 +58,12 @@ def functional_connectivity_group(config):
 
 def functional_connectivity_sim(data, subject_true_connections, folder_name, subject, logger_name, sims, Ti, s):
     myflags = Flags(sims, Ti, s)
-    result_filenames = 'result_sims_'+str(sims)+'_t_'+str(Ti)+'_s_'+str(s)+'_'
+    result_filenames = '/'
     n_test_samples = int(Ti * myflags.get_flag('test_percent'))
     for fold in range(int(Ti * myflags.get_flag('test_percent'))):
-        path = RESULTS + folder_name + '_fold' + str(fold)
+        path = RESULTS + folder_name + '/fold_' + str(fold)
         ExprUtil.check_dir_exists(path)
-        logger = logging.getLogger(logger_name)
+        logger = logging.getLogger(logger_name+'_fold_' + str(fold))
         logger.setLevel(logging.DEBUG)
         fh = logging.FileHandler(path + '/run.log')
         fh.setLevel(logging.DEBUG)
@@ -87,7 +87,7 @@ def functional_connectivity_sim(data, subject_true_connections, folder_name, sub
 
         myLatnet = ScalableLatnet(myflags, dim=1, train_data=train_data, test_data=test_data,
                                   true_conn=subject_true_connections, logger=logger, subject=subject, fold=fold)
-        mu, sigma2, alpha, mu_g, sigma2_g = myLatnet.optimize(result_filenames)
+        mu, sigma2, alpha, mu_g, sigma2_g = myLatnet.optimize(path+result_filenames)
         ExprUtil.write_to_file_callback(path, logger)(mu, sigma2, alpha, mu_g, sigma2_g)
 
 
