@@ -153,17 +153,21 @@ def get_matrices(n_mc, n_nodes, n_rf, dtype, o_single_normal, mu_g, log_sigma2_g
     return g, o, b, _a
 
 
-def calculate_ell(n_mc, n_rf, n_nodes, dim, dtype, g, o, b, log_sigma2_n, log_variance, real_data, inv_calculation,
-                  n_approx_terms, tensorboard):
+def calculate_ell(n_mc, n_rf, n_nodes, dim, dtype, g, o, b, log_sigma2_n, log_variance, log_lengthscale, real_data, inv_calculation,
+                  n_approx_terms, tensorboard = None):
     n_signals = real_data.shape[0]
     t = get_t(n_signals, dtype)
     z = get_z(n_signals, n_mc, n_rf, dim, g, o, b, log_variance, t, n_nodes)
+    
+    Kt = kernel(t, tf.exp(log_variance), tf.exp(log_lengthscale), n_signals, dtype)
+    Kt_appr = tf.reduce_mean(tf.matmul(tf.transpose(z, perm=[0, 2, 1]),z),axis=0)
+
 
     exp_y = get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, dtype)
     real_y = tf.expand_dims(tf.transpose(real_data), 0)
 
     ell = calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n, tensorboard)
-    return ell, tf.reduce_mean(exp_y, axis=0), real_data
+    return ell, tf.reduce_mean(exp_y, axis=0), real_data, Kt, Kt_appr
 
 
 def get_t(n_signals, dtype):
@@ -184,6 +188,26 @@ def get_z(n_signals, n_mc, n_rf, dim, g, o, b, log_variance, t, n_nodes):
     z = tf.add(z, tf.matmul(b, noise))
     return z
 
+def kernel(X, variance, lengthscale, T, dtype):
+        """
+        RBF - Radial basis kernel (aka Squared Exponential Kernel)
+        Args:
+            X: Tensor of shape T x 1 containing the location of data-points.
+            variance: double. Tensor of shape (), determining the variance of kernel.
+            lengthscale: double. Tensor of shape (), determining the lengthscale of the kernel.
+            T: int. Number of data-points.
+        Returns:
+            : Tensor of shape T x T, in which element ij is: variance * exp(-(x_i _ x_j)^2/(2 * lengthscale ** 2))
+            Note that a latent noise is added to the kernel for numerical stability.
+        """
+        dist = tf.reduce_sum(tf.square(X), 1)
+        dist = tf.reshape(dist, [-1, 1])
+        sq_dists = tf.add(tf.subtract(dist, tf.multiply(tf.cast(2., dtype), tf.matmul(X, tf.transpose(X)))),
+                          tf.transpose(dist))
+        return tf.multiply(variance, tf.exp(
+            tf.negative(tf.div(tf.abs(sq_dists), tf.multiply(tf.cast(2.0, dtype), tf.square(lengthscale)))))) + \
+               tf.constant(1e-5 * np.identity(T), dtype=dtype)
+
 
 def get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, dtype):
     if inv_calculation == "approx":
@@ -200,7 +224,7 @@ def get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, d
     return exp_y
 
 
-def calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n, tensorboard):
+def calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n, tensorboard = None):
     norm = tf.norm(exp_y - real_y, ord=2, axis=1)
     norm_sum_by_t = tf.reduce_sum(norm, axis=1)
     norm_sum_by_t_avg_by_s = tf.reduce_mean(norm_sum_by_t)
@@ -249,16 +273,17 @@ class ScalableLatnet:
                                                        self.o_single_normal, self.mu_g, self.log_sigma2_g, self.mu_o,
                                                        self.log_sigma2_o, self.mu_w, self.log_sigma2_w, self.log_alpha,
                                                        self.posterior_lambda_)
-        self.ell, self.pred_signals, self.real_signals = calculate_ell(self.n_mc, self.n_rf, self.n_nodes, self.dim,
-                                                                       self.FLOAT, self.g, self.o, self.b,
-                                                                       self.log_sigma2_n, self.log_variance,
-                                                                       self.train_data, self.inv_calculation,
-                                                                       self.n_approx_terms, self.tensorboard)
-        _, self.test_pred_signals, self.test_real_signals = calculate_ell(self.n_mc, self.n_rf, self.n_nodes, self.dim,
-                                                                          self.FLOAT, self.g, self.o, self.b,
-                                                                          self.log_sigma2_n, self.log_variance,
-                                                                          self.test_data, self.inv_calculation,
-                                                                          self.n_approx_terms, self.tensorboard)
+        self.ell, self.pred_signals, self.real_signals, self.train_Kt, self.train_Kt_appr = calculate_ell(n_mc=self.n_mc, n_rf=self.n_rf, n_nodes=self.n_nodes, 
+                                                                        dim=self.dim,dtype=self.FLOAT, g=self.g, o=self.o, b=self.b,
+                                                                       log_sigma2_n=self.log_sigma2_n, log_variance=self.log_variance,log_lengthscale=self.log_lengthscale,
+                                                                       real_data=self.train_data, inv_calculation=self.inv_calculation,
+                                                                       n_approx_terms=self.n_approx_terms, tensorboard=self.tensorboard)
+        self.mse_Kt_appr = tf.reduce_mean(tf.pow(self.train_Kt -  self.train_Kt_appr,2))
+        _, self.test_pred_signals, self.test_real_signals, _, _ = calculate_ell(n_mc=self.n_mc, n_rf=self.n_rf, n_nodes=self.n_nodes, dim=self.dim,
+                                                                          dtype=self.FLOAT, g=self.g, o=self.o, b=self.b,
+                                                                          log_sigma2_n=self.log_sigma2_n, log_variance=self.log_variance,log_lengthscale=self.log_lengthscale,
+                                                                          real_data=self.test_data, inv_calculation=self.inv_calculation,
+                                                                          n_approx_terms=self.n_approx_terms, tensorboard=self.tensorboard)
         self.test_mse = tf.reduce_mean(tf.math.pow(self.test_real_signals - tf.transpose(self.test_pred_signals), 2))
 
         self.kl_o, self.kl_w, self.kl_g, self.kl_a = self.get_kl()
@@ -292,8 +317,8 @@ class ScalableLatnet:
         self.global_step_id = 0
         while self.n_iter is None or _iter < self.n_iter:
             self.logger.debug("ITERATION {iter:d}".format(iter=_iter))
-            self.run_step(self.n_var_steps, self.var_opt)
-            self.run_step(self.n_hyp_steps, self.hyp_opt)
+            self.run_step(_iter,self.n_var_steps, self.var_opt)
+            self.run_step(_iter,self.n_hyp_steps, self.hyp_opt)
             _iter += 1
         self.run_variables()
 
@@ -306,17 +331,17 @@ class ScalableLatnet:
         self.write_results(result_filenames)
         return self.mu_w_, self.sigma2_w_, self.alpha_, self.mu_g_, self.sigma2_g_
 
-    def run_step(self, n_steps, opt):
+    def run_step(self, gl_i, n_steps, opt):
         for i in range(0, n_steps):
             self.run_optimization(opt)
             if i % self.display_step == 0:
-                self.log_optimization(i)
+                self.log_optimization(gl_i,i)
 
     def run_optimization(self, opt):
-        self.elbo_, self.ell_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _ = self.sess.run(
-            [self.elbo, self.ell, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt])
+        self.elbo_, self.ell_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _, self.mse_Kt_appr_ = self.sess.run(
+            [self.elbo, self.ell, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt, self.mse_Kt_appr])
         if self.tensorboard:
-            summary = self.sess.run([self.summaries_op])
+            summary =  self.sess.run([self.summaries_op])
             self.summary_writer.add_summary(summary, self.global_step_id)
         self.global_step_id += 1
 
@@ -325,11 +350,11 @@ class ScalableLatnet:
             (self.elbo, self.pred_signals, self.real_signals, self.mu_w, tf.exp(self.log_sigma2_w),
              tf.exp(self.log_alpha), self.mu_g, tf.exp(self.log_sigma2_g)))
 
-    def log_optimization(self, i):
+    def log_optimization(self, gl_i, i):
         self.logger.debug(
-            " local {i:d} iter: elbo={elbo_:.0f} (ell {ell_:.0f}, kl_g {kl_g_:.1f}, kl_o {kl_o_:.1f}, kl_w {kl_w_:.1f}, kl_a {kl_a_:.1f})".format(
-                i=i, elbo_=self.elbo_, ell_=-self.ell_, kl_g_=self.kl_g_, kl_o_=self.kl_o_, kl_w_=self.kl_w_,
-                kl_a_=self.kl_a_))
+            "{gl_i:d} local {i:d} iter: elbo={elbo_:.0f} (ell {ell_:.0f}, kl_g {kl_g_:.1f}, kl_o {kl_o_:.1f}, kl_w {kl_w_:.1f}, kl_a {kl_a_:.1f}), Kt appr error {kt_err:.1f}".format(
+                gl_i=gl_i, i=i, elbo_=self.elbo_, ell_=-self.ell_, kl_g_=self.kl_g_, kl_o_=self.kl_o_, kl_w_=self.kl_w_,
+                kl_a_=self.kl_a_, kt_err=self.mse_Kt_appr_))
 
     def get_hyperparameters(self, flags):
         init_sigma2_n = flags.get_flag('init_sigma2_n')
@@ -364,7 +389,7 @@ class ScalableLatnet:
         log_alpha = tf.Variable(tf.math.log(self.prior_alpha), dtype=self.FLOAT, name="log_alpha")
         return mu_g, log_sigma2_g, mu_o, o_single_normal, log_sigma_2_n, log_variance, mu_w, log_sigma2_w, log_alpha
 
-    def initialize_omega(self):
+    def initialize_omega_old(self):
         init_lengthscale_matrix = tf.constant(self.init_lengthscale, dtype=self.FLOAT) * tf.ones((self.n_rf, self.dim),
                                                                                                  dtype=self.FLOAT)
         log_lengthscale = tf.Variable(2 * tf.math.log(init_lengthscale_matrix), dtype=self.FLOAT,
@@ -372,6 +397,13 @@ class ScalableLatnet:
         pr_log_sigma2_o = -log_lengthscale
         log_sigma2_o = tf.Variable(pr_log_sigma2_o, dtype=self.FLOAT, name="log_sigma2_o")
         return log_lengthscale, pr_log_sigma2_o, log_sigma2_o
+    
+    def initialize_omega(self):
+        log_lengthscale = tf.Variable(tf.math.log(tf.constant(self.init_lengthscale, dtype=self.FLOAT)))
+        pr_log_sigma2_o = -2*log_lengthscale*tf.ones((self.n_rf, self.dim),dtype=self.FLOAT)
+        log_sigma2_o = tf.Variable(pr_log_sigma2_o, dtype=self.FLOAT, name="log_sigma2_o")
+        return log_lengthscale, pr_log_sigma2_o, log_sigma2_o
+
 
     def get_kl(self):
         kl_o = get_dkl_normal(self.mu_o, tf.exp(self.log_sigma2_o), self.pr_mu_o, tf.exp(self.pr_log_sigma2_o))

@@ -60,7 +60,8 @@ def functional_connectivity_sim(data, subject_true_connections, folder_name, sub
     myflags = Flags(sims, Ti, s)
     result_filenames = '/'
     n_test_samples = int(Ti * myflags.get_flag('test_percent'))
-    for fold in range(int(Ti * myflags.get_flag('test_percent'))):
+    # for fold in range(int(Ti * myflags.get_flag('test_percent'))):
+    for fold in range(1):
         path = RESULTS + folder_name + '/fold_' + str(fold)
         ExprUtil.check_dir_exists(path)
         logger = logging.getLogger(logger_name+'_fold_' + str(fold))
