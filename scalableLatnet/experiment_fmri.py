@@ -100,8 +100,8 @@ if __name__ == '__main__':
     # parser.add_argument('--n', help='number of subjects to run in a row')
     args = parser.parse_args()
 
-    for sim in ['sim1']:
-        for Ti in [50]:
+    for sim in ['sim2']:
+        for Ti in [100]:
             config = {'sims': sim, 'Ti': Ti, 's': args.s, 'output_folder': 'fmri/fmri_' + sim + '_scalableGPL/',
                       'input_file': 'fmri_sim/ts_' + sim + '.csv'}
             functional_connectivity_group(config)

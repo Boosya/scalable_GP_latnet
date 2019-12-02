@@ -164,10 +164,11 @@ def calculate_ell(n_mc, n_rf, n_nodes, dim, dtype, g, o, b, log_sigma2_n, log_va
 
 
     exp_y = get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, dtype)
+    exp_y = tf.reduce_mean(exp_y, axis=0)
     real_y = tf.expand_dims(tf.transpose(real_data), 0)
 
     ell = calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n, tensorboard)
-    return ell, tf.reduce_mean(exp_y, axis=0), real_data, Kt, Kt_appr
+    return ell, exp_y, real_data, Kt, Kt_appr
 
 
 def get_t(n_signals, dtype):
@@ -225,10 +226,7 @@ def get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, d
 
 
 def calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n, tensorboard = None):
-    norm = tf.norm(exp_y - real_y, ord=2, axis=1)
-    norm_sum_by_t = tf.reduce_sum(norm, axis=1)
-    norm_sum_by_t_avg_by_s = tf.reduce_mean(norm_sum_by_t)
-
+    norm_sum_by_t_avg_by_s = tf.norm(exp_y - real_y, ord=2)
     _two_pi = tf.constant(6.28, dtype=dtype)
     _half = tf.constant(0.5, dtype=dtype)
     first_part_ell = - _half * n_nodes * tf.cast(n_signals, dtype=dtype) * tf.math.log(
@@ -288,7 +286,8 @@ class ScalableLatnet:
 
         self.kl_o, self.kl_w, self.kl_g, self.kl_a = self.get_kl()
         # calculating ELBO
-        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a - self.kl_g*self.kl_g_weight
+        # self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a - self.kl_g*self.kl_g_weight
+        self.elbo = self.ell - self.kl_o - self.kl_w
 
         # get the operation for optimizing variational parameters
         self.var_opt, _, self.var_nans = get_optimizer(tf.negative(self.elbo),
