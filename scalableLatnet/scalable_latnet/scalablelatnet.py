@@ -167,8 +167,9 @@ def calculate_ell(n_mc, n_rf, n_nodes, dim, dtype, g, o, b, log_sigma2_n, log_va
     assert (exp_y.shape[0] == n_signals)
     assert (exp_y.shape[1] == n_nodes)
 
-    ell = calculate_ell_(exp_y, real_data, dtype, n_nodes, n_signals, log_sigma2_n, tensorboard)
-    return ell, exp_y, real_data, Kt, Kt_appr
+    ell, first_ell_part, second_ell_part, ell_norm = calculate_ell_(exp_y, real_data, dtype, n_nodes, n_signals,
+                                                                    log_sigma2_n, tensorboard)
+    return ell, exp_y, real_data, Kt, Kt_appr, first_ell_part, second_ell_part, ell_norm
 
 
 def get_t(n_signals, dtype):
@@ -226,14 +227,14 @@ def get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, d
 
 
 def calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n, tensorboard=None):
-    norm_sum_by_t_avg_by_s = get_norm(exp_y, real_y)
+    ell_norm = get_norm(exp_y, real_y)
     _two_pi = tf.constant(6.28, dtype=dtype)
     _half = tf.constant(0.5, dtype=dtype)
-    first_part_ell = - _half * n_nodes * tf.cast(n_signals, dtype=dtype) * tf.math.log(
+    first_ell_part = - _half * n_nodes * tf.cast(n_signals, dtype=dtype) * tf.math.log(
         tf.multiply(_two_pi, tf.exp(log_sigma2_n)))
-    second_part_ell = - _half * tf.divide(norm_sum_by_t_avg_by_s, tf.exp(log_sigma2_n))
-    ell = first_part_ell + second_part_ell
-    return ell
+    second_ell_part = - _half * tf.divide(ell_norm, tf.exp(log_sigma2_n))
+    ell = first_ell_part + second_ell_part
+    return ell, first_ell_part, second_ell_part, ell_norm
 
 
 def get_norm(exp_y, real_y):
@@ -275,23 +276,23 @@ class ScalableLatnet:
                                                        self.o_single_normal, self.mu_g, self.log_sigma2_g, self.mu_o,
                                                        self.log_sigma2_o, self.mu_w, self.log_sigma2_w, self.log_alpha,
                                                        self.posterior_lambda_)
-        self.ell, self.pred_signals, self.real_signals, self.train_Kt, self.train_Kt_appr = calculate_ell(
+        self.ell, self.pred_signals, self.real_signals, self.train_Kt, self.train_Kt_appr, self.first_ell_part, self.second_ell_part, self.ell_norm, = calculate_ell(
             n_mc=self.n_mc, n_rf=self.n_rf, n_nodes=self.n_nodes, dim=self.dim, dtype=self.FLOAT, g=self.g, o=self.o,
             b=self.b, log_sigma2_n=self.log_sigma2_n, log_variance=self.log_variance,
             log_lengthscale=self.log_lengthscale, real_data=self.train_data, inv_calculation=self.inv_calculation,
             n_approx_terms=self.n_approx_terms, tensorboard=self.tensorboard)
         self.mse_Kt_appr = tf.reduce_mean(tf.pow(self.train_Kt - self.train_Kt_appr, 2))
-        _, self.test_pred_signals, self.test_real_signals, _, _ = calculate_ell(n_mc=self.n_mc, n_rf=self.n_rf,
-                                                                                n_nodes=self.n_nodes, dim=self.dim,
-                                                                                dtype=self.FLOAT, g=self.g, o=self.o,
-                                                                                b=self.b,
-                                                                                log_sigma2_n=self.log_sigma2_n,
-                                                                                log_variance=self.log_variance,
-                                                                                log_lengthscale=self.log_lengthscale,
-                                                                                real_data=self.test_data,
-                                                                                inv_calculation=self.inv_calculation,
-                                                                                n_approx_terms=self.n_approx_terms,
-                                                                                tensorboard=self.tensorboard)
+        _, self.test_pred_signals, self.test_real_signals, _, _, _, _, _ = calculate_ell(n_mc=self.n_mc, n_rf=self.n_rf,
+                                                                                         n_nodes=self.n_nodes,
+                                                                                         dim=self.dim, dtype=self.FLOAT,
+                                                                                         g=self.g, o=self.o, b=self.b,
+                                                                                         log_sigma2_n=self.log_sigma2_n,
+                                                                                         log_variance=self.log_variance,
+                                                                                         log_lengthscale=self.log_lengthscale,
+                                                                                         real_data=self.test_data,
+                                                                                         inv_calculation=self.inv_calculation,
+                                                                                         n_approx_terms=self.n_approx_terms,
+                                                                                         tensorboard=self.tensorboard)
         self.test_mse = tf.reduce_mean(tf.math.pow(self.test_real_signals - tf.transpose(self.test_pred_signals), 2))
 
         self.kl_o, self.kl_w, self.kl_g, self.kl_a = self.get_kl()
@@ -347,8 +348,10 @@ class ScalableLatnet:
                 self.log_optimization(gl_i, i)
 
     def run_optimization(self, opt):
-        self.elbo_, self.ell_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _, self.mse_Kt_appr_ = self.sess.run(
-            [self.elbo, self.ell, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt, self.mse_Kt_appr])
+        self.elbo_, self.ell_, self.first_ell_part_, self.second_ell_part_, self.ell_norm_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _, self.mse_Kt_appr_ = self.sess.run(
+            [self.elbo, self.ell, self.first_ell_part, self.second_ell_part, self.ell_norm, self.kl_g, self.kl_o,
+             self.kl_w, self.kl_a, opt, self.mse_Kt_appr])
+        assert (self.ell_ < 0)
         if self.tensorboard:
             summary = self.sess.run([self.summaries_op])
             self.summary_writer.add_summary(summary, self.global_step_id)
@@ -361,9 +364,11 @@ class ScalableLatnet:
 
     def log_optimization(self, gl_i, i):
         self.logger.debug(
-            "{gl_i:d} local {i:d} iter: elbo={elbo_:.0f} (ell {ell_:.0f}, kl_g {kl_g_:.1f}, kl_o {kl_o_:.1f}, kl_w {kl_w_:.1f}, kl_a {kl_a_:.1f}), Kt appr error {kt_err:.1f}".format(
-                gl_i=gl_i, i=i, elbo_=self.elbo_, ell_=-self.ell_, kl_g_=self.kl_g_, kl_o_=self.kl_o_, kl_w_=self.kl_w_,
-                kl_a_=self.kl_a_, kt_err=self.mse_Kt_appr_))
+            "{gl_i:d} local {i:d} iter: elbo={elbo_:.0f} (ell {ell_:.0f} (first {first:.0f}, second {second:.0f}, "
+            "norm {norm:.0f}), kl_g {kl_g_:.1f}, kl_o {kl_o_:.1f}, kl_w {kl_w_:.1f}, kl_a {kl_a_:.1f}), Kt appr error "
+            "{kt_err:.1f}".format(gl_i=gl_i, i=i, elbo_=self.elbo_, ell_=-self.ell_, kl_g_=self.kl_g_, kl_o_=self.kl_o_,
+                                  kl_w_=self.kl_w_, kl_a_=self.kl_a_, kt_err=self.mse_Kt_appr_,
+                                  first=self.first_ell_part_, second=self.second_ell_part_, norm=self.ell_norm_))
 
     def get_hyperparameters(self, flags):
         init_sigma2_n = flags.get_flag('init_sigma2_n')
