@@ -163,9 +163,11 @@ def calculate_ell(n_mc, n_rf, n_nodes, dim, dtype, g, o, b, log_sigma2_n, log_va
 
     exp_y = get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, dtype)
     exp_y = tf.reduce_mean(exp_y, axis=0)
-    real_y = tf.expand_dims(tf.transpose(real_data), 0)
+    exp_y = tf.transpose(exp_y)
+    assert (exp_y.shape[0] == n_signals)
+    assert (exp_y.shape[1] == n_nodes)
 
-    ell = calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n, tensorboard)
+    ell = calculate_ell_(exp_y, real_data, dtype, n_nodes, n_signals, log_sigma2_n, tensorboard)
     return ell, exp_y, real_data, Kt, Kt_appr
 
 
@@ -183,8 +185,6 @@ def get_z(n_signals, n_mc, n_rf, dim, g, o, log_variance, t, n_nodes):
     fi_under = tf.reshape(tf.matmul(o_temp, tf.transpose(t)), [n_mc, n_rf, n_signals])
     fi = tf.sqrt(tf.math.divide(tf.exp(log_variance), n_rf)) * tf.concat([tf.cos(fi_under), tf.sin(fi_under)], axis=1)
     z = tf.matmul(g, fi)
-    # noise = np.random.normal(loc=0, scale=0.0001, size=(n_mc, n_nodes, n_signals))
-    # z = tf.add(z, tf.matmul(b, noise))
     return z
 
 
