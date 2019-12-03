@@ -4,7 +4,7 @@ import pandas
 import time
 import argparse
 
-from scalable_latnet.scalablelatnet import ScalableLatnet
+from scalable_latnet.scalablelatnet_new import ScalableLatnet
 from scalable_latnet.expr_util import ExprUtil
 import logging
 
