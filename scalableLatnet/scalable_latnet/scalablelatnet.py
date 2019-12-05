@@ -1,9 +1,6 @@
 import csv
 import random
 
-# tensorboard --logdir graphs --host=127.0.0.1
-
-
 __author__ = 'EG'
 
 import numpy as np
@@ -41,94 +38,6 @@ def get_model_settings(flags):
     n_approx_terms = flags.get_flag('n_approx_terms')
     kl_g_weight = flags.get_flag('kl_g_weight')
     return n_mc, n_rf, n_iterations, n_var_steps, n_hyp_steps, display_step, lr, hlr, inv_calculation, n_approx_terms, kl_g_weight
-
-
-def replace_nan_with_zero(w):
-    return tf.compat.v1.where(tf.math.is_nan(w), tf.ones_like(w) * 0.0, w)
-
-
-def contains_nan(w):
-    for w_ in w:
-        if tf.reduce_all(input_tensor=tf.math.is_nan(w_)) is None:
-            return tf.reduce_all(input_tensor=tf.math.is_nan(w_))
-    return tf.reduce_all(input_tensor=tf.math.is_nan(w_))
-
-
-def get_optimizer(objective, trainables, learning_rate, tensorboard, max_global_norm=1.0):
-    grads = tf.gradients(ys=objective, xs=trainables)
-    grads, _ = tf.clip_by_global_norm(grads, clip_norm=max_global_norm)
-    grad_var_pairs = zip([replace_nan_with_zero(g) for g in grads], trainables)
-    optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate)
-    if tensorboard:
-        grads_ = optimizer.compute_gradients(objective)
-        for gradient, variable in grads_:
-            tf.summary.histogram("gradients/" + variable.name, gradient)
-    return optimizer.apply_gradients(grad_var_pairs), grads, contains_nan(grads)
-
-
-def get_dkl_normal(mu, sigma2, prior_mu, prior_sigma2):
-    kl = 0.5 * tf.add(
-        tf.add(tf.math.log(tf.math.divide(prior_sigma2, sigma2)) - 1, tf.math.divide(sigma2, prior_sigma2)),
-        tf.math.divide(tf.square(tf.subtract(mu, prior_mu)), prior_sigma2))
-    return tf.reduce_sum(kl)
-
-
-def get_kl_normal(posterior_mu, posterior_sigma2, prior_mu, prior_sigma2, dtype):
-    kl = tf.add(tf.math.divide(tf.add(tf.square(tf.subtract(posterior_mu, prior_mu)), posterior_sigma2),
-                               tf.multiply(tf.cast(2., dtype=dtype), prior_sigma2)),
-                -0.5 + 0.5 * tf.math.log(prior_sigma2) - 0.5 * tf.math.log(posterior_sigma2))
-    kl = tf.linalg.set_diag(tf.expand_dims(kl, -3), tf.zeros((1, tf.shape(kl)[0]), dtype=dtype))
-    return tf.reduce_sum(kl[0])
-
-
-def logp_logistic(X, alpha, lambda_, dtype):
-    """
-    Logarithm of Concrete distribution with parameter `alpha' and hyper-parameter `lambda_' at points `X', i.e.,
-        Concrete(X;alpha, lambda_)
-
-    Args:
-        X: Tensor of shape S x N x N. Locations at which the distribution will be calculated.
-        alpha:  Tensor of shape N x N. To be written.
-        lambda_: double. Tensor of shape ().
-
-    Returns:
-        :param X:
-        :param alpha:
-        :param lambda_:
-        :param dtype:
-        : A tensor of shape S x N x N. Element ijk is:
-            log lambda_  - lambda_ * X_ijk + log alpha_jk - 2 log (1 + exp (-lambda_ * X_ijk + log alpha_jk))
-
-    """
-
-    mu = tf.log(alpha)
-    return tf.subtract(tf.add(tf.subtract(tf.log(lambda_), tf.multiply(lambda_, X)), mu),
-                       tf.multiply(tf.constant(2.0, dtype=dtype), tf.log(tf.add(tf.constant(1.0, dtype=dtype), tf.exp(
-                           tf.add(tf.negative(tf.multiply(lambda_, X)), mu))))))
-
-
-def get_kl_logistic(x, posterior_alpha, prior_lambda_, posterior_lambda_, prior_alpha, dtype):
-    """
-    Calculates KL divergence between two Concrete distributions using samples from posterior Concrete distribution.
-
-    KL(Concrete(alpha, posterior_lambda_) || Concrete(prior_alpha, prior_lambda))
-
-    Args:
-        X: Tensor of shape S x N x N. These are samples from posterior Concrete distribution.
-        posterior_alpha: Tensor of shape N x N. alpha for posterior distributions.
-        prior_lambda_: Tensor of shape (). prior_lambda_ of prior distribution.
-        posterior_lambda_: Tensor of shape (). posterior_lambda_ for posterior distribution.
-        prior_alpha: Tensor of shape N x N. alpha for prior distributions.
-
-    Returns:
-        : Tensor of shape () representing KL divergence between the two concrete distributions.
-
-    """
-    logdiff = logp_logistic(x, posterior_alpha, posterior_lambda_, dtype) - logp_logistic(x, prior_alpha, prior_lambda_,
-                                                                                          dtype)
-    logdiff = tf.matrix_set_diag(logdiff, tf.zeros((tf.shape(logdiff)[0], tf.shape(logdiff)[1]),
-                                                   dtype=dtype))  # set diagonal part to zero
-    return tf.reduce_sum(tf.reduce_mean(logdiff, [0]))
 
 
 def get_matrices(n_mc, n_nodes, n_rf, dtype, o_single_normal, mu_g, log_sigma2_g, mu_o, log_sigma2_o, mu_w,
@@ -209,23 +118,30 @@ def calculate_ell(n_mc, n_rf, n_nodes, dim, dtype, g, o, b, log_sigma2_n, log_va
         ell_1 - first part of ell term that is not signal-related - tensor of shape ()
         ell_2 - second part of ell term that is signal related - tensor of shape ()
     """
-    n_signals = real_data.shape[1]
-    assert (n_nodes == real_data.shape[0])
+    n_signals = real_data.shape[0]
+    assert (n_nodes == real_data.shape[1])
     # t - normalized design matrix - tensor with shape (n_signals, n_dim)
     t = get_t(n_signals, dtype)
     # z - approximation of GP - tensor of shape (n_mc, n_nodes, n_signals)
     z = get_z(n_signals, n_mc, n_rf, dim, g, o, log_variance, t)
 
-    Kt = kernel(t, tf.exp(log_variance), tf.exp(log_lengthscale), n_signals, dtype)
-    Kt_appr = tf.reduce_mean(tf.matmul(tf.transpose(z, perm=[0, 2, 1]), z), axis=0)
-
     # exp_y - expected signals based on model - tensor of shape (n_mc, n_nodes, n_signals)
     exp_y = get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, dtype)
-    # avg over mc samples, now exp_y is tensor with shape (n_nodes, n_signals)
-    exp_y = tf.reduce_mean(exp_y, axis=0)
 
-    ell, ell_1, ell_2 = calculate_ell_(exp_y, real_data, dtype, n_nodes, n_signals, log_sigma2_n)
-    return ell, exp_y, real_data, Kt, Kt_appr, ell_1, ell_2
+    real_y = tf.expand_dims(tf.transpose(real_data), 0)
+    norm = tf.norm(exp_y - real_y, ord=2, axis=1)
+    norm_sum_by_t = tf.reduce_sum(norm, axis=1)
+    norm_sum_by_t_avg_by_s = tf.reduce_mean(norm_sum_by_t)
+
+    _two_pi = tf.constant(6.28, dtype=dtype)
+    _half = tf.constant(0.5, dtype=dtype)
+    first_part_ell = - _half * n_nodes * tf.cast(n_signals, dtype=dtype) * tf.math.log(
+        tf.multiply(_two_pi, tf.exp(log_sigma2_n)))
+
+    second_part_ell = - _half * tf.divide(norm_sum_by_t_avg_by_s, tf.exp(log_sigma2_n))
+    ell = first_part_ell + second_part_ell
+
+    return ell, tf.reduce_mean(exp_y, axis=0), real_data, first_part_ell, second_part_ell
 
 
 def get_t(n_signals, dtype):
@@ -271,28 +187,6 @@ def get_z(n_signals, n_mc, n_rf, dim, g, o, log_variance, t):
     return z
 
 
-def kernel(x, variance, lengthscale, t, dtype):
-    """
-    Calculates RBF kernel values at times t
-
-    :param x: tensor of shape T x 1 containing the location of data-points
-    :param variance: double, tensor of shape (), determining the variance of kernel
-    :param lengthscale: double, tensor of shape (), determining the lengthscale of the kernel
-    :param t: int, number of data-points
-    :param dtype: type of data for Scalable latnet - float64
-    :return: Radial basis kernel (aka Squared Exponential Kernel) - Tensor of shape T x T, in which element ij is:
-        variance * exp(-(x_i _ x_j)^2/(2 * lengthscale ** 2))
-    """
-    dist = tf.reduce_sum(tf.square(x), 1)
-    dist = tf.reshape(dist, [-1, 1])
-    sq_dists = tf.add(tf.subtract(dist, tf.multiply(tf.cast(2., dtype), tf.matmul(x, tf.transpose(x)))),
-                      tf.transpose(dist))
-    # Note that a latent noise is added to the kernel for numerical stability
-    return tf.multiply(variance, tf.exp(
-        tf.negative(tf.div(tf.abs(sq_dists), tf.multiply(tf.cast(2.0, dtype), tf.square(lengthscale)))))) + tf.constant(
-        1e-5 * np.identity(t), dtype=dtype)
-
-
 def get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, dtype):
     """
     Get expected signal as follows: exp_y = (I-B)^-1*Z
@@ -305,9 +199,9 @@ def get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, d
     :param n_nodes: number of nodes in network
     :param n_signals: number of signal observations per node
     :param dtype: type of data for Scalable latnet - float64
-    :return: exp_y - expected signals based on model - tensor of shape (n_mc, n_nodes, n_signals)
+    :return: exp_y - expected signals based on model - tensor of shape (n_nodes, n_signals)
     """
-    exp_y = tf.zeros([n_mc, n_nodes, n_signals])
+    exp_y = tf.zeros([n_mc, n_nodes, n_signals], dtype=dtype)
     if inv_calculation == "approx":
         v_current = tf.reshape(z, [n_mc, n_nodes, n_signals])
         exp_y = v_current
@@ -325,39 +219,88 @@ def get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, d
     return exp_y
 
 
-def calculate_ell_(exp_y, real_y, dtype, n_nodes, n_signals, log_sigma2_n):
-    """
-    Calculates approximated expected log-likelihood term as
-    log(p(y|z,x,b,sigma2_n) = - NT/2*log(2Pi*sigma2_n) - 1/(2*sigma2_n)*sum_over_t(norm_2(real_y - exp_y))
-
-    :param exp_y: expected signals based on model - tensor of shape (n_nodes, n_signals)
-    :param real_y: signals observed - tensor with shape (n_nodes, n_signals)
-    :param dtype: type of data for Scalable latnet - float64
-    :param n_nodes: number of nodes in network
-    :param n_signals: number of signal observations per node
-    :param log_sigma2_n: observation noise of the signals - tensor with shape ()
-    :return:
-        ell - approximated expected log-likelihood term - tensor of shape ()
-        ell_1 - first part of ell term that is not signal-related - tensor of shape ()
-        ell_2 - second part of ell term that is signal related - tensor of shape ()
-    """
-    ell_norm = get_norm(exp_y, real_y)
-    _two_pi = tf.constant(6.28, dtype=dtype)
-    _half = tf.constant(0.5, dtype=dtype)
-    first_part_ell = - _half * n_nodes * tf.cast(n_signals, dtype=dtype) * tf.math.log(
-        tf.multiply(_two_pi, tf.exp(log_sigma2_n)))
-    second_part_ell = - _half * tf.divide(ell_norm, tf.exp(log_sigma2_n))
-    ell = first_part_ell + second_part_ell
-    return ell, first_part_ell, second_part_ell
+def get_kl_normal(posterior_mu, posterior_sigma2, prior_mu, prior_sigma2, dtype):
+    kl = tf.add(tf.math.divide(tf.add(tf.square(tf.subtract(posterior_mu, prior_mu)), posterior_sigma2),
+                               tf.multiply(tf.cast(2., dtype=dtype), prior_sigma2)),
+                -0.5 + 0.5 * tf.math.log(prior_sigma2) - 0.5 * tf.math.log(posterior_sigma2))
+    kl = tf.linalg.set_diag(tf.expand_dims(kl, -3), tf.zeros((1, tf.shape(kl)[0]), dtype=dtype))
+    return tf.reduce_sum(kl[0])
 
 
-def get_norm(exp_y, real_y):
+def get_kl_logistic(x, posterior_alpha, prior_lambda_, posterior_lambda_, prior_alpha, dtype):
     """
-    :param exp_y: expected signals based on model - tensor of shape (n_nodes, n_signals)
-    :param real_y: signals observed - tensor with shape (n_nodes, n_signals)
-    :return: 2-nd norm of (exp_y - real_y) - tensor of shape ()
+    Calculates KL divergence between two Concrete distributions using samples from posterior Concrete distribution.
+
+    KL(Concrete(alpha, posterior_lambda_) || Concrete(prior_alpha, prior_lambda))
+
+    Args:
+        X: Tensor of shape S x N x N. These are samples from posterior Concrete distribution.
+        posterior_alpha: Tensor of shape N x N. alpha for posterior distributions.
+        prior_lambda_: Tensor of shape (). prior_lambda_ of prior distribution.
+        posterior_lambda_: Tensor of shape (). posterior_lambda_ for posterior distribution.
+        prior_alpha: Tensor of shape N x N. alpha for prior distributions.
+
+    Returns:
+        : Tensor of shape () representing KL divergence between the two concrete distributions.
+
     """
-    return tf.norm(exp_y - real_y, ord=2)
+    logdiff = logp_logistic(x, posterior_alpha, posterior_lambda_, dtype) - logp_logistic(x, prior_alpha, prior_lambda_,
+                                                                                          dtype)
+    logdiff = tf.matrix_set_diag(logdiff, tf.zeros((tf.shape(logdiff)[0], tf.shape(logdiff)[1]),
+                                                   dtype=dtype))  # set diagonal part to zero
+    return tf.reduce_sum(tf.reduce_mean(logdiff, [0]))
+
+
+def logp_logistic(X, alpha, lambda_, dtype):
+    """
+    Logarithm of Concrete distribution with parameter `alpha' and hyper-parameter `lambda_' at points `X', i.e.,
+        Concrete(X;alpha, lambda_)
+
+    Args:
+        X: Tensor of shape S x N x N. Locations at which the distribution will be calculated.
+        alpha:  Tensor of shape N x N. To be written.
+        lambda_: double. Tensor of shape ().
+
+    Returns:
+        :param X:
+        :param alpha:
+        :param lambda_:
+        :param dtype:
+        : A tensor of shape S x N x N. Element ijk is:
+            log lambda_  - lambda_ * X_ijk + log alpha_jk - 2 log (1 + exp (-lambda_ * X_ijk + log alpha_jk))
+
+    """
+
+    mu = tf.log(alpha)
+    return tf.subtract(tf.add(tf.subtract(tf.log(lambda_), tf.multiply(lambda_, X)), mu),
+                       tf.multiply(tf.constant(2.0, dtype=dtype), tf.log(tf.add(tf.constant(1.0, dtype=dtype), tf.exp(
+                           tf.add(tf.negative(tf.multiply(lambda_, X)), mu))))))
+
+
+def replace_nan_with_zero(w):
+    return tf.compat.v1.where(tf.math.is_nan(w), tf.ones_like(w) * 0.0, w)
+
+
+def contains_nan(w):
+    for w_ in w:
+        if tf.reduce_all(input_tensor=tf.math.is_nan(w_)) is None:
+            return tf.reduce_all(input_tensor=tf.math.is_nan(w_))
+    return tf.reduce_all(input_tensor=tf.math.is_nan(w_))
+
+
+def get_optimizer(objective, trainables, learning_rate, max_global_norm=1.0):
+    grads = tf.gradients(ys=objective, xs=trainables)
+    grads, _ = tf.clip_by_global_norm(grads, clip_norm=max_global_norm)
+    grad_var_pairs = zip([replace_nan_with_zero(g) for g in grads], trainables)
+    optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate)
+    return optimizer.apply_gradients(grad_var_pairs), grads, contains_nan(grads)
+
+
+def get_dkl_normal(mu, sigma2, prior_mu, prior_sigma2):
+    kl = 0.5 * tf.add(
+        tf.add(tf.math.log(tf.math.divide(prior_sigma2, sigma2)) - 1, tf.math.divide(sigma2, prior_sigma2)),
+        tf.math.divide(tf.square(tf.subtract(mu, prior_mu)), prior_sigma2))
+    return tf.reduce_sum(kl)
 
 
 def get_bool_array_of_upper_and_lower_triangular(array):
@@ -386,17 +329,15 @@ def get_array_of_upper_and_lower_triangular(array):
 
 class ScalableLatnet:
 
-    def __init__(self, flags, dim, train_data, test_data, true_conn, logger, subject, fold):
-        ######################
-        # Getting model settings
-        self.subject = subject
-        self.fold = fold
+    def __init__(self, flags, subject, dim, train_data, fold, test_data, true_conn, logger):
         self.FLOAT = tf.float64
         self.logger = logger
+        self.subject = subject
         self.dim = dim
         (self.n_signals, self.n_nodes) = train_data.shape
-        self.train_data = tf.transpose(tf.constant(train_data, dtype=self.FLOAT))
-        self.test_data = tf.transpose(tf.constant(test_data, dtype=self.FLOAT))
+        self.train_data = tf.constant(train_data, dtype=self.FLOAT)
+        self.fold = fold
+        self.test_data = tf.constant(test_data, dtype=self.FLOAT)
         self.true_conn = tf.reshape(tf.constant(true_conn, dtype=self.FLOAT), [self.n_nodes, self.n_nodes])
 
         # Set random seed for tensorflow and numpy operations
@@ -431,67 +372,62 @@ class ScalableLatnet:
                                                        self.o_single_normal, self.mu_g, self.log_sigma2_g, self.mu_o,
                                                        self.log_sigma2_o, self.mu_w, self.log_sigma2_w, self.log_alpha,
                                                        self.posterior_lambda_)
-        # Calculate ell term, predicted signals
-        self.ell, self.pred_signals, self.real_signals, self.train_Kt, self.train_Kt_appr, self.ell_1, self.ell_2 = calculate_ell(
-            n_mc=self.n_mc, n_rf=self.n_rf, n_nodes=self.n_nodes, dim=self.dim, dtype=self.FLOAT, g=self.g, o=self.o,
-            b=self.b, log_sigma2_n=self.log_sigma2_n, log_variance=self.log_variance,
-            log_lengthscale=self.log_lengthscale, real_data=self.train_data, inv_calculation=self.inv_calculation,
-            n_approx_terms=self.n_approx_terms)
 
-        # Check random feature approximation error
-        self.mse_Kt_appr = tf.reduce_mean(tf.pow(self.train_Kt - self.train_Kt_appr, 2))
+        # Calculate ell term, predicted signals
+        self.ell, self.pred_signals, self.real_signals, self.ell_1, self.ell_2 = calculate_ell(n_mc=self.n_mc,
+                                                                                               n_rf=self.n_rf,
+                                                                                               n_nodes=self.n_nodes,
+                                                                                               dim=self.dim,
+                                                                                               dtype=self.FLOAT,
+                                                                                               g=self.g, o=self.o,
+                                                                                               b=self.b,
+                                                                                               log_sigma2_n=self.log_sigma2_n,
+                                                                                               log_variance=self.log_variance,
+                                                                                               log_lengthscale=self.log_lengthscale,
+                                                                                               real_data=self.train_data,
+                                                                                               inv_calculation=self.inv_calculation,
+                                                                                               n_approx_terms=self.n_approx_terms)
 
         # Calculate test signal prediction
-        _, self.test_pred_signals, self.test_real_signals, _, _, _, _ = calculate_ell(n_mc=self.n_mc, n_rf=self.n_rf,
-                                                                                      n_nodes=self.n_nodes,
-                                                                                      dim=self.dim, dtype=self.FLOAT,
-                                                                                      g=self.g, o=self.o, b=self.b,
-                                                                                      log_sigma2_n=self.log_sigma2_n,
-                                                                                      log_variance=self.log_variance,
-                                                                                      log_lengthscale=self.log_lengthscale,
-                                                                                      real_data=self.test_data,
-                                                                                      inv_calculation=self.inv_calculation,
-                                                                                      n_approx_terms=self.n_approx_terms)
-        # Calculate test error
-        self.test_mse = tf.norm(self.test_real_signals - self.test_pred_signals, 2)
+        _, self.test_pred_signals, self.test_real_signals, _, _ = calculate_ell(n_mc=self.n_mc, n_rf=self.n_rf,
+                                                                                n_nodes=self.n_nodes, dim=self.dim,
+                                                                                dtype=self.FLOAT, g=self.g, o=self.o,
+                                                                                b=self.b,
+                                                                                log_sigma2_n=self.log_sigma2_n,
+                                                                                log_variance=self.log_variance,
+                                                                                log_lengthscale=self.log_lengthscale,
+                                                                                real_data=self.test_data,
+                                                                                inv_calculation=self.inv_calculation,
+                                                                                n_approx_terms=self.n_approx_terms)
 
         # Get KL terms
         self.kl_o, self.kl_w, self.kl_g, self.kl_a = self.get_kl()
 
         # Calculate ELBO
-        # self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a - self.kl_g * self.kl_g_weight
-        self.elbo = self.ell - self.kl_o - self.kl_w
+        self.elbo = self.ell - self.kl_o - self.kl_w - self.kl_a - self.kl_g
 
         # Get the operation for optimizing variational parameters
         self.var_opt, _, self.var_nans = get_optimizer(tf.negative(self.elbo),
                                                        [self.mu_g, self.log_sigma2_g, self.mu_o, self.log_sigma2_o,
-                                                        self.mu_w, self.log_sigma2_w, self.log_alpha], self.lr,
-                                                       self.tensorboard)
+                                                        self.mu_w, self.log_sigma2_w, self.log_alpha], self.lr)
         # Get the operation for optimizing hyper parameters
         self.hyp_opt, _, self.hyp_nans = get_optimizer(tf.negative(self.elbo),
                                                        [self.log_sigma2_n, self.log_variance, self.log_lengthscale],
-                                                       self.hlr, self.tensorboard)
+                                                       self.hlr)
 
         ######################
         # Initializing session
 
         # Initialize variables
         self.init_op = tf.compat.v1.initializers.global_variables()
-        config = tf.ConfigProto()
-        config.intra_op_parallelism_threads = 3
-        config.inter_op_parallelism_threads = 3
-        self.sess = tf.compat.v1.Session(config=config)
+        self.sess = tf.compat.v1.Session()
         self.sess.run(self.init_op)
-        if self.tensorboard:
-            self.summaries_op = tf.summary.merge_all()
-            self.summary_writer = tf.summary.FileWriter("graphs", self.sess.graph)
 
     def optimize(self, result_filenames):
         ######################
         # Learning
 
         _iter = 0  # current global iteration over optimization steps
-        self.global_step_id = 0
         while self.n_iter is None or _iter < self.n_iter:
             self.logger.debug("ITERATION {iter:d}".format(iter=_iter))
             self.run_step(_iter, self.n_var_steps, self.var_opt)
@@ -499,11 +435,10 @@ class ScalableLatnet:
             _iter += 1
         self.run_variables()
 
-        self.test_pred_signals_, self.test_real_signals_, self.test_mse_, self.true_conn_ = self.sess.run(
-            [self.test_pred_signals, self.test_real_signals, self.test_mse, self.true_conn])
+        self.test_pred_signals_, self.test_real_signals_, self.true_conn_ = self.sess.run(
+            [self.test_pred_signals, self.test_real_signals, self.true_conn])
         self.auc_ = self.calculate_auc()
 
-        self.logger.debug("Resulting MSE {mse:.2f}".format(mse=self.test_mse_))
         self.logger.debug("Resulting AUC {auc:.2f}".format(auc=self.auc_))
         self.write_results(result_filenames)
         return self.mu_w_, self.sigma2_w_, self.alpha_, self.mu_g_, self.sigma2_g_
@@ -515,14 +450,8 @@ class ScalableLatnet:
                 self.log_optimization(gl_i, i)
 
     def run_optimization(self, opt):
-        self.elbo_, self.ell_, self.ell_1_, self.ell_2_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _, self.mse_Kt_appr_ = self.sess.run(
-            [self.elbo, self.ell, self.ell_1, self.ell_2, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt,
-             self.mse_Kt_appr])
-        assert (self.ell_ < 0)
-        if self.tensorboard:
-            summary = self.sess.run([self.summaries_op])
-            self.summary_writer.add_summary(summary, self.global_step_id)
-        self.global_step_id += 1
+        self.elbo_, self.ell_, self.ell_1_, self.ell_2_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _ = self.sess.run(
+            [self.elbo, self.ell, self.ell_1, self.ell_2, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt])
 
     def run_variables(self):
         self.elbo_, self.pred_signals_, self.real_signals_, self.mu_w_, self.sigma2_w_, self.alpha_, self.mu_g_, self.sigma2_g_ = self.sess.run(
@@ -531,14 +460,21 @@ class ScalableLatnet:
 
     def log_optimization(self, gl_i, i):
         self.logger.debug("{gl_i:d} local {i:d} iter: elbo={elbo_:.0f} (ell {ell_:.0f} ({ell_1_:.0f},{ell_2_:.0f}), "
-                          "kl_g {kl_g_:.1f}, kl_o {kl_o_:.1f}, kl_w {kl_w_:.1f}, kl_a {kl_a_:.1f}), Kt appr error {kt_err:.1f}".format(gl_i=gl_i, i=i, elbo_=self.elbo_, ell_=-self.ell_, ell_1_=self.ell_1_,
-                                    ell_2_=self.ell_2_, kl_g_=self.kl_g_, kl_o_=self.kl_o_, kl_w_=self.kl_w_,
-                                    kl_a_=self.kl_a_, kt_err=self.mse_Kt_appr_))
+                          "kl_g {kl_g_:.1f}, kl_o {kl_o_:.1f}, kl_w {kl_w_:.1f}, kl_a {kl_a_:.1f})".format(gl_i=gl_i,
+                                                                                                           i=i,
+                                                                                                           elbo_=self.elbo_,
+                                                                                                           ell_=-self.ell_,
+                                                                                                           ell_1_=self.ell_1_,
+                                                                                                           ell_2_=self.ell_2_,
+                                                                                                           kl_g_=self.kl_g_,
+                                                                                                           kl_o_=self.kl_o_,
+                                                                                                           kl_w_=self.kl_w_,
+                                                                                                           kl_a_=self.kl_a_))
 
     def get_hyperparameters(self, flags):
         init_sigma2_n = flags.get_flag('init_sigma2_n')
         init_variance = flags.get_flag('init_variance')
-        init_lengthscale = flags.get_flag('init_lengthscale')
+        init_lengthscale = tf.constant(flags.get_flag('init_lengthscale'),dtype=self.FLOAT)
         init_p = tf.constant(flags.get_flag('init_p'), dtype=self.FLOAT)
         posterior_lambda_ = tf.constant(flags.get_flag('posterior_lambda_'), dtype=self.FLOAT)
         prior_lambda_ = tf.constant(flags.get_flag('prior_lambda_'), dtype=self.FLOAT)
@@ -549,7 +485,7 @@ class ScalableLatnet:
         prior_sigma2_g = tf.ones((self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
         prior_mu_o = tf.zeros((self.n_rf, self.dim), dtype=self.FLOAT)
         prior_mu_w = tf.zeros((self.n_nodes, self.n_nodes), dtype=self.FLOAT)
-        prior_sigma2_w = tf.ones((self.n_nodes, self.n_nodes), dtype=self.FLOAT)
+        prior_sigma2_w = 2/self.n_nodes*tf.ones((self.n_nodes, self.n_nodes), dtype=self.FLOAT)
         prior_alpha = tf.multiply(tf.cast(self.init_p / (1. - self.init_p), self.FLOAT),
                                   tf.ones((self.n_nodes, self.n_nodes), dtype=self.FLOAT))
         return prior_mu_g, prior_sigma2_g, prior_mu_o, prior_mu_w, prior_sigma2_w, prior_alpha
@@ -568,19 +504,10 @@ class ScalableLatnet:
         log_alpha = tf.Variable(tf.math.log(self.prior_alpha), dtype=self.FLOAT, name="log_alpha")
         return mu_g, log_sigma2_g, mu_o, o_single_normal, log_sigma_2_n, log_variance, mu_w, log_sigma2_w, log_alpha
 
-    def initialize_omega_old(self):
-        init_lengthscale_matrix = tf.constant(self.init_lengthscale, dtype=self.FLOAT) * tf.ones((self.n_rf, self.dim),
-                                                                                                 dtype=self.FLOAT)
-        log_lengthscale = tf.Variable(2 * tf.math.log(init_lengthscale_matrix), dtype=self.FLOAT,
-                                      name="log_lengthscale")
-        pr_log_sigma2_o = -log_lengthscale
-        log_sigma2_o = tf.Variable(pr_log_sigma2_o, dtype=self.FLOAT, name="log_sigma2_o")
-        return log_lengthscale, pr_log_sigma2_o, log_sigma2_o
-
     def initialize_omega(self):
-        log_lengthscale = tf.Variable(tf.math.log(tf.constant(self.init_lengthscale, dtype=self.FLOAT)))
-        pr_log_sigma2_o = -2 * log_lengthscale * tf.ones((self.n_rf, self.dim), dtype=self.FLOAT)
-        log_sigma2_o = tf.Variable(pr_log_sigma2_o, dtype=self.FLOAT, name="log_sigma2_o")
+        log_lengthscale = tf.Variable(tf.math.log(self.init_lengthscale), dtype=self.FLOAT)
+        pr_log_sigma2_o = -2*log_lengthscale
+        log_sigma2_o = tf.Variable(pr_log_sigma2_o, dtype=self.FLOAT)
         return log_lengthscale, pr_log_sigma2_o, log_sigma2_o
 
     def get_kl(self):
@@ -590,6 +517,13 @@ class ScalableLatnet:
         kl_a = get_kl_logistic(self._a, tf.exp(self.log_alpha), self.prior_lambda_, self.posterior_lambda_,
                                self.prior_alpha, self.FLOAT)
         return kl_o, kl_w, kl_g, kl_a
+
+    def calculate_auc(self):
+        self.real_conn_ = get_bool_array_of_upper_and_lower_triangular(self.true_conn_)
+        self.p_ = self.alpha_ / (1.0 + self.alpha_)
+        self.pred_conn_ = get_array_of_upper_and_lower_triangular(self.p_)
+        self.auc_ = roc_auc_score(self.real_conn_, self.pred_conn_)
+        return self.auc_
 
     def write_results(self, result_filenames):
         rand_node = random.randint(1, self.n_nodes - 1)
@@ -621,13 +555,6 @@ class ScalableLatnet:
             file.close()
         with open(result_filenames + 'result.csv', 'a', newline='') as file:
             writer = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow([self.subject, self.fold, rand_node, self.n_mc, self.n_rf, self.test_mse_, self.auc_])
+            writer.writerow([self.subject, self.fold, rand_node, self.n_mc, self.n_rf, self.auc_])
             writer.writerows([])
             file.close()
-
-    def calculate_auc(self):
-        self.real_conn_ = get_bool_array_of_upper_and_lower_triangular(self.true_conn_)
-        self.p_ = self.alpha_ / (1.0 + self.alpha_)
-        self.pred_conn_ = get_array_of_upper_and_lower_triangular(self.p_)
-        self.auc_ = roc_auc_score(self.real_conn_, self.pred_conn_)
-        return self.auc_
