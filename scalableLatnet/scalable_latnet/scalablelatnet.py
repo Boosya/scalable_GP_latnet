@@ -441,7 +441,7 @@ class ScalableLatnet:
 
         self.logger.debug("Resulting AUC {auc:.2f}".format(auc=self.auc_))
         self.write_results(result_filenames)
-        return self.mu_w_, self.sigma2_w_, self.alpha_, self.mu_g_, self.sigma2_g_
+        return self.mu_w_, self.sigma2_w_, self.alpha_, self.mu_g_, self.sigma2_g_, self.mu_o_, self.sigma2_o_, self.sigma2_n_, self.variance_, self.lengthscale_
 
     def run_step(self, gl_i, n_steps, opt):
         for i in range(0, n_steps):
@@ -454,9 +454,16 @@ class ScalableLatnet:
             [self.elbo, self.ell, self.ell_1, self.ell_2, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt])
 
     def run_variables(self):
-        self.elbo_, self.pred_signals_, self.real_signals_, self.mu_w_, self.sigma2_w_, self.alpha_, self.mu_g_, self.sigma2_g_ = self.sess.run(
+        self.elbo_, self.pred_signals_, self.real_signals_, \
+        self.mu_w_, self.sigma2_w_, \
+        self.alpha_, \
+        self.mu_g_, self.sigma2_g_, \
+        self.mu_o_, self.sigma2_o_,\
+          self.sigma2_n_, self.variance_, self.lengthscale_  = self.sess.run(
             (self.elbo, self.pred_signals, self.real_signals, self.mu_w, tf.exp(self.log_sigma2_w),
-             tf.exp(self.log_alpha), self.mu_g, tf.exp(self.log_sigma2_g)))
+             tf.exp(self.log_alpha), self.mu_g, tf.exp(self.log_sigma2_g), self.mu_o, tf.exp(self.log_sigma2_o),
+             tf.exp(self.log_sigma2_n),
+             tf.exp(self.log_variance), tf.exp(self.log_lengthscale)))
 
     def log_optimization(self, gl_i, i):
         self.logger.debug("{gl_i:d} local {i:d} iter: elbo={elbo_:.0f} (ell {ell_:.0f} ({ell_1_:.0f},{ell_2_:.0f}), "
@@ -474,7 +481,7 @@ class ScalableLatnet:
     def get_hyperparameters(self, flags):
         init_sigma2_n = flags.get_flag('init_sigma2_n')
         init_variance = flags.get_flag('init_variance')
-        init_lengthscale = tf.constant(flags.get_flag('init_lengthscale'),dtype=self.FLOAT)
+        init_lengthscale = tf.constant(flags.get_flag('init_lengthscale'), dtype=self.FLOAT)
         init_p = tf.constant(flags.get_flag('init_p'), dtype=self.FLOAT)
         posterior_lambda_ = tf.constant(flags.get_flag('posterior_lambda_'), dtype=self.FLOAT)
         prior_lambda_ = tf.constant(flags.get_flag('prior_lambda_'), dtype=self.FLOAT)
@@ -506,7 +513,7 @@ class ScalableLatnet:
 
     def initialize_omega(self):
         log_lengthscale = tf.Variable(tf.math.log(self.init_lengthscale), dtype=self.FLOAT)
-        pr_log_sigma2_o = -2*log_lengthscale
+        pr_log_sigma2_o = -2 * tf.math.log(self.init_lengthscale)
         log_sigma2_o = tf.Variable(pr_log_sigma2_o, dtype=self.FLOAT)
         return log_lengthscale, pr_log_sigma2_o, log_sigma2_o
 

@@ -64,7 +64,7 @@ def functional_connectivity_sim(data, subject_true_connections, folder_name, sub
     for fold in range(1):
         path = RESULTS + folder_name + '/fold_' + str(fold)
         ExprUtil.check_dir_exists(path)
-        logger = logging.getLogger(logger_name+'_fold_' + str(fold))
+        logger = logging.getLogger(logger_name + '_fold_' + str(fold))
         logger.setLevel(logging.DEBUG)
         fh = logging.FileHandler(path + '/run.log')
         fh.setLevel(logging.DEBUG)
@@ -88,8 +88,9 @@ def functional_connectivity_sim(data, subject_true_connections, folder_name, sub
 
         myLatnet = ScalableLatnet(myflags, dim=1, train_data=train_data, test_data=test_data,
                                   true_conn=subject_true_connections, logger=logger, subject=subject, fold=fold)
-        mu, sigma2, alpha, mu_g, sigma2_g = myLatnet.optimize(path+result_filenames)
-        ExprUtil.write_to_file_callback(path, logger)(mu, sigma2, alpha, mu_g, sigma2_g)
+        mu_w, sigma2_w, alpha, mu_g, sigma2_g, mu_o, sigma2_o, sigma2, variance, lengthscale = myLatnet.optimize(
+            path + result_filenames)
+        ExprUtil.write_to_file_callback(path, logger)(mu_w, sigma2_w, alpha, mu_g, sigma2_g, mu_o, sigma2_o, sigma2, variance, lengthscale)
 
 
 if __name__ == '__main__':
@@ -97,11 +98,11 @@ if __name__ == '__main__':
     # parser.add_argument('--sim', help='which sim to use')
     # parser.add_argument('--Ti', help='number of observations per node')
     parser.add_argument('--s', help='which object to start with')
-    # parser.add_argument('--n', help='number of subjects to run in a row')
+    parser.add_argument('--n', help='name of run')
     args = parser.parse_args()
 
-    for sim in ['sim2']:
-        for Ti in [100]:
-            config = {'sims': sim, 'Ti': Ti, 's': args.s, 'output_folder': 'fmri/fmri_' + sim + '_scalableGPL/',
+    for sim in ['sim1']:
+        for Ti in [50]:
+            config = {'sims': sim, 'Ti': Ti, 's': args.s, 'output_folder': 'fmri/fmri_' + sim + '_scalableGPL/'+args.n,
                       'input_file': 'fmri_sim/ts_' + sim + '.csv'}
             functional_connectivity_group(config)
