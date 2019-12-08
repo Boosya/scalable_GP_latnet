@@ -9,4 +9,5 @@ venv/
 latnet/data/R/.Rhistory
 *.code-workspace
 *result*.csv
-*floyd*
+.floyd*
+floyd*
