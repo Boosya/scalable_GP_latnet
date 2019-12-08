@@ -1,4 +1,4 @@
-results/
+latnet/results/
 nelbos/
 graphs/
 venv/
@@ -6,6 +6,7 @@ venv/
 *.pyc
 *__pycache__*
 .idea/
-data/R/.Rhistory
+latnet/data/R/.Rhistory
 *.code-workspace
 *result*.csv
+*floyd*

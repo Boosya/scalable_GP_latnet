@@ -19,7 +19,7 @@ class ExprUtil:
             os.makedirs(dir_name)
 
     @staticmethod
-    def write_to_file(mu_w, sigma2_w, alpha, mu_g, sigma2_g, mu_o, sigma2_o, hyp, path, logger):
+    def write_to_file(mu_w, sigma2_w, alpha, mu_g, mu_o, sigma2_o, hyp, path, logger):
         """
         Writes parameters (variational and hyper-parameters) to CSV files.
 
@@ -35,7 +35,6 @@ class ExprUtil:
         np.savetxt(path + '/mu_w' + '.csv', mu_w, delimiter=',', comments='')
         np.savetxt(path + '/sigma2_w' + '.csv', sigma2_w, delimiter=',', comments='')
         np.savetxt(path + '/mu_g' + '.csv', mu_g, delimiter=',', comments='')
-        np.savetxt(path + '/sigma2_g' + '.csv', sigma2_g, delimiter=',', comments='')
         np.savetxt(path + '/mu_o' + '.csv', mu_o, delimiter=',', comments='')
         np.savetxt(path + '/sigma2_o' + '.csv', sigma2_o, delimiter=',', comments='')
         np.savetxt(path + '/hyper' + '.csv', hyp, delimiter=',', comments='')
@@ -51,6 +50,6 @@ class ExprUtil:
     @staticmethod
     def write_to_file_callback(path, logger):
         def toFile(mu_w, sigma2_w, alpha, mu_g, sigma2_g, mu_o, sigma2_o, sigma2, variance, lengthscale):
-            ExprUtil.write_to_file(mu_w, sigma2_w, alpha, mu_g, sigma2_g, mu_o, sigma2_o,  np.array([sigma2, lengthscale, variance]), path, logger)
+            ExprUtil.write_to_file(mu_w, sigma2_w, alpha, mu_g, sigma2_g, mu_o, np.array([sigma2_o, sigma2, lengthscale, variance]), path, logger)
 
         return toFile

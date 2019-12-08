@@ -128,9 +128,9 @@ def calculate_ell(n_mc, n_rf, n_nodes, dim, dtype, g, o, b, log_sigma2_n, log_va
     # exp_y - expected signals based on model - tensor of shape (n_mc, n_nodes, n_signals)
     exp_y = get_exp_y(inv_calculation, n_approx_terms, z, b, n_mc, n_nodes, n_signals, dtype)
 
-    real_y = tf.expand_dims(tf.transpose(real_data), 0)
-    norm = tf.norm(exp_y - real_y, ord=2, axis=1)
-    norm_sum_by_t = tf.reduce_sum(norm, axis=1)
+    d = exp_y - tf.transpose(real_data)
+    norm = tf.pow(d, 2)
+    norm_sum_by_t = tf.reduce_sum(norm, axis=[1, 2])
     norm_sum_by_t_avg_by_s = tf.reduce_mean(norm_sum_by_t)
 
     _two_pi = tf.constant(6.28, dtype=dtype)
@@ -291,8 +291,14 @@ def contains_nan(w):
 def get_optimizer(objective, trainables, learning_rate, max_global_norm=1.0):
     grads = tf.gradients(ys=objective, xs=trainables)
     grads, _ = tf.clip_by_global_norm(grads, clip_norm=max_global_norm)
-    grad_var_pairs = zip([replace_nan_with_zero(g) for g in grads], trainables)
     optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate)
+    for gradient, variable in optimizer.compute_gradients(objective):
+        print(gradient,variable.name)
+        tf.summary.histogram("gradients/" + variable.name, gradient)
+        tf.summary.histogram("variables/" + variable.name, variable)
+
+    grad_var_pairs = zip([replace_nan_with_zero(g) for g in grads], trainables)
+
     return optimizer.apply_gradients(grad_var_pairs), grads, contains_nan(grads)
 
 
@@ -422,12 +428,15 @@ class ScalableLatnet:
         self.init_op = tf.compat.v1.initializers.global_variables()
         self.sess = tf.compat.v1.Session()
         self.sess.run(self.init_op)
+        self.summaries_op = tf.summary.merge_all()
+        self.summary_writer = tf.summary.FileWriter("graphs", self.sess.graph)
 
     def optimize(self, result_filenames):
         ######################
         # Learning
 
         _iter = 0  # current global iteration over optimization steps
+        self.global_step_id = 0
         while self.n_iter is None or _iter < self.n_iter:
             self.logger.debug("ITERATION {iter:d}".format(iter=_iter))
             self.run_step(_iter, self.n_var_steps, self.var_opt)
@@ -450,20 +459,17 @@ class ScalableLatnet:
                 self.log_optimization(gl_i, i)
 
     def run_optimization(self, opt):
-        self.elbo_, self.ell_, self.ell_1_, self.ell_2_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _ = self.sess.run(
-            [self.elbo, self.ell, self.ell_1, self.ell_2, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt])
+        self.elbo_, self.ell_, self.ell_1_, self.ell_2_, self.kl_g_, self.kl_o_, self.kl_w_, self.kl_a_, _, summary = self.sess.run(
+            [self.elbo, self.ell, self.ell_1, self.ell_2, self.kl_g, self.kl_o, self.kl_w, self.kl_a, opt,
+             self.summaries_op])
+        self.summary_writer.add_summary(summary, self.global_step_id)
+        self.global_step_id += 1
 
     def run_variables(self):
-        self.elbo_, self.pred_signals_, self.real_signals_, \
-        self.mu_w_, self.sigma2_w_, \
-        self.alpha_, \
-        self.mu_g_, self.sigma2_g_, \
-        self.mu_o_, self.sigma2_o_,\
-          self.sigma2_n_, self.variance_, self.lengthscale_  = self.sess.run(
+        self.elbo_, self.pred_signals_, self.real_signals_, self.mu_w_, self.sigma2_w_, self.alpha_, self.mu_g_, self.sigma2_g_, self.mu_o_, self.sigma2_o_, self.sigma2_n_, self.variance_, self.lengthscale_ = self.sess.run(
             (self.elbo, self.pred_signals, self.real_signals, self.mu_w, tf.exp(self.log_sigma2_w),
              tf.exp(self.log_alpha), self.mu_g, tf.exp(self.log_sigma2_g), self.mu_o, tf.exp(self.log_sigma2_o),
-             tf.exp(self.log_sigma2_n),
-             tf.exp(self.log_variance), tf.exp(self.log_lengthscale)))
+             tf.exp(self.log_sigma2_n), tf.exp(self.log_variance), tf.exp(self.log_lengthscale)))
 
     def log_optimization(self, gl_i, i):
         self.logger.debug("{gl_i:d} local {i:d} iter: elbo={elbo_:.0f} (ell {ell_:.0f} ({ell_1_:.0f},{ell_2_:.0f}), "
@@ -492,7 +498,7 @@ class ScalableLatnet:
         prior_sigma2_g = tf.ones((self.n_nodes, 2 * self.n_rf), dtype=self.FLOAT)
         prior_mu_o = tf.zeros((self.n_rf, self.dim), dtype=self.FLOAT)
         prior_mu_w = tf.zeros((self.n_nodes, self.n_nodes), dtype=self.FLOAT)
-        prior_sigma2_w = 2/self.n_nodes*tf.ones((self.n_nodes, self.n_nodes), dtype=self.FLOAT)
+        prior_sigma2_w = 2 / self.n_nodes * tf.ones((self.n_nodes, self.n_nodes), dtype=self.FLOAT)
         prior_alpha = tf.multiply(tf.cast(self.init_p / (1. - self.init_p), self.FLOAT),
                                   tf.ones((self.n_nodes, self.n_nodes), dtype=self.FLOAT))
         return prior_mu_g, prior_sigma2_g, prior_mu_o, prior_mu_w, prior_sigma2_w, prior_alpha
@@ -512,9 +518,9 @@ class ScalableLatnet:
         return mu_g, log_sigma2_g, mu_o, o_single_normal, log_sigma_2_n, log_variance, mu_w, log_sigma2_w, log_alpha
 
     def initialize_omega(self):
-        log_lengthscale = tf.Variable(tf.math.log(self.init_lengthscale), dtype=self.FLOAT)
-        pr_log_sigma2_o = -2 * tf.math.log(self.init_lengthscale)
-        log_sigma2_o = tf.Variable(pr_log_sigma2_o, dtype=self.FLOAT)
+        log_lengthscale = tf.Variable(tf.math.log(self.init_lengthscale), dtype=self.FLOAT, name="log_lengthscale")
+        pr_log_sigma2_o = -2 * log_lengthscale
+        log_sigma2_o = tf.Variable(-2*tf.math.log(self.init_lengthscale), dtype=self.FLOAT, name="log_sigma_o")
         return log_lengthscale, pr_log_sigma2_o, log_sigma2_o
 
     def get_kl(self):
