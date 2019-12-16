@@ -115,8 +115,8 @@ def calculate_ell(n_mc, n_rf, n_nodes, dim, dtype, g, o, b, log_sigma2_n, log_va
         real_data - signals observed - tensor with shape (n_nodes, n_signals)
         Kt - kernel values at observation times t - tensor of shape (n_signals, n_signals)
         Kt_appr - approximated kernel values at observation times t - tensor of shape (n_signals, n_signals)
-        ell_1 - first part of ell term that is not signal-related - tensor of shape ()
-        ell_2 - second part of ell term that is signal related - tensor of shape ()
+        ell_1 - first part of ell term - tensor of shape ()
+        ell_2 - second part of ell term - tensor of shape ()
     """
     n_signals = real_data.shape[0]
     assert (n_nodes == real_data.shape[1])
@@ -341,9 +341,9 @@ class ScalableLatnet:
         self.subject = subject
         self.dim = dim
         (self.n_signals, self.n_nodes) = train_data.shape
-        self.train_data = tf.constant(train_data, dtype=self.FLOAT)
+        self.train_data = tf.constant(train_data)
         self.fold = fold
-        self.test_data = tf.constant(test_data, dtype=self.FLOAT)
+        self.test_data = tf.constant(test_data)
         self.true_conn = tf.reshape(tf.constant(true_conn, dtype=self.FLOAT), [self.n_nodes, self.n_nodes])
 
         # Set random seed for tensorflow and numpy operations
